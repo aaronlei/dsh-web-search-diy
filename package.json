@@ -1,0 +1,68 @@
+{
+  "name": "dsh-web-search-diy",
+  "version": "0.1.0",
+  "description": "DSH web search provider: Qwen Token Plan Responses API with the native web_search tool. Registers a ctx.web search provider (default model deepseek-v4-flash-0731) and overrides the shared searchProvider to it; UI copy follows the app language (zh / en).",
+  "license": "MIT",
+  "author": "aaronlei",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.2"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-credentials": "^0.1.2-rc.1",
+    "@deepseek-ai/dsh-launch-environment": "^0.1.2-rc.1",
+    "@deepseek-ai/dsh-web": "^0.1.2-rc.1"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-credentials": "^0.1.2-rc.1",
+    "@deepseek-ai/dsh-launch-environment": "^0.1.2-rc.1",
+    "@deepseek-ai/dsh-web": "^0.1.2-rc.1"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "LICENSE",
+    "README.md",
+    "README.zh.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    }
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "web-search",
+    "web_search",
+    "qwen",
+    "diy-search",
+    "dashscope",
+    "openai-compatible",
+    "responses-api",
+    "deepseek"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aaronlei/dsh-web-search-diy.git"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

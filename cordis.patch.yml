@@ -1,0 +1,18 @@
+# dsh-web-search-diy bundle patch — automatically applied when this package
+# is added as a profile bundle (e.g. `dsh plugin add dsh-web-search-diy`).
+#
+# It registers the OpenAI-compatible search provider (plus the web
+# configuration endpoint on web profiles) and switches the shared `web`
+# service's default search provider to it. Because bundle patches apply after
+# the shipped base layers (last write wins per row id), this overrides the
+# base `searchProvider: deepseek-official` without touching any shipped file.
+
+- insert:
+    - id: web-search-diy
+      name: 'dsh-web-search-diy'
+
+# Whole-config replacement of the base `web` row: this patch layer replaces the
+# row's entire `config`, so every key the deployment needs must be restated.
+- id: web
+  config:
+    searchProvider: diy-search
