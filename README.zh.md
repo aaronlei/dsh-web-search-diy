@@ -31,9 +31,11 @@ DSH 自带的搜索提供方（`deepseek-official`）走的是 DeepSeek 自家 A
 dsh plugin --profile web add dsh-web-search-diy
 ```
 
-bundle patch 会：
+bundle patch 会（无需手动改 `cordis.patch.yml`）：
 - 插入 `web-search-diy` loader 条目
-- 把共享 `web` 行的 `searchProvider` 覆盖为 `diy-search`
+- 覆盖共享 `web` 行：`searchProvider: diy-search`，并补回
+  `fetchProvider: http`（patch 会整段替换该行 config）
+- 禁用官方 DeepSeek 搜索插件 `web-search-deepseek`
 
 本地开发调试：以本地链接方式安装 checkout（与其他本地插件一致）：
 
@@ -46,9 +48,6 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 > **本地链接安装注意**：插件把 `@deepseek-ai/*` 钩子声明为 `peerDependencies`
 > （并在 `devDependencies` 镜像）。链接包会优先解析自身 `node_modules`，所以
 > 首次请在插件目录运行一次 `pnpm install`；运行时 peer 由 harness 安装提供。
-
-如果还需要 `fetch` 能力，请在 `web` 行保留 `fetchProvider: http`（bundle patch
-是整段替换该行 config，你的 profile patch 层可以补回这一项）。
 
 ## 配置
 

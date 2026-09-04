@@ -12,7 +12,15 @@
       name: 'dsh-web-search-diy'
 
 # Whole-config replacement of the base `web` row: this patch layer replaces the
-# row's entire `config`, so every key the deployment needs must be restated.
+# row's entire `config`, so every key the deployment needs must be restated
+# (the base also ships `fetchProvider: http`; dropping it here would leave
+# fetch without a provider). No profile-level patch is required.
 - id: web
   config:
     searchProvider: diy-search
+    fetchProvider: http
+
+# The shipped DeepSeek-official search is replaced by this plugin; keep the
+# base row disabled so it never registers a competing provider.
+- id: web-search-deepseek
+  disabled: true

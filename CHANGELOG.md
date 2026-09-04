@@ -5,6 +5,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-09-04
+
+### Changed
+
+- **Self-contained bundle patch** — the plugin's `cordis.patch.yml` now also
+  restates `web.fetchProvider: http` (a row patch replaces the whole config)
+  and disables the shipped `web-search-deepseek` row, so installing the plugin
+  requires no manual profile-level `cordis.patch.yml` edits for search.
+
 ## [0.1.1] - 2026-09-04
 
 ### Fixed

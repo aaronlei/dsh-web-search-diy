@@ -35,9 +35,11 @@ Published on npm:
 dsh plugin --profile web add dsh-web-search-diy
 ```
 
-The bundle patch then:
+The bundle patch then (no manual `cordis.patch.yml` edits needed):
 - inserts the `web-search-diy` loader entry
-- overrides the shared `web` row's `searchProvider` to `diy-search`
+- overrides the shared `web` row's `searchProvider` to `diy-search` and
+  restates `fetchProvider: http` (a patch replaces the whole row config)
+- disables the shipped DeepSeek-official search (`web-search-deepseek`)
 
 For local development, install the checkout as a linked package (the same way
 other local plugins are linked):
@@ -52,10 +54,6 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 > hooks as `peerDependencies` (mirrored in `devDependencies`). A linked package
 > resolves its own `node_modules` first, so run `pnpm install` inside the
 > plugin directory once; the harness install supplies the runtime peers.
-
-If a `fetch` capability matters, keep `fetchProvider: http` on the `web` row
-(your profile patch layer can restate it — the bundle patch replaces the
-whole row config).
 
 ## Configuration
 
