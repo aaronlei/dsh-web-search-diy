@@ -1,6 +1,6 @@
 {
   "name": "dsh-web-search-diy",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "DSH web search provider over any OpenAI-compatible Responses API gateway exposing the native web_search tool. Registers a ctx.web search provider (defaults to Qwen Token Plan as a working example) and overrides the shared searchProvider to it; UI copy follows the app language (zh / en).",
   "license": "MIT",
   "author": "aaronlei",

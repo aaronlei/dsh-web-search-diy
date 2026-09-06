@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2026-09-04
+
+### Changed
+
+- **Repositioned to any compatible gateway** — the README and npm description
+  no longer bind the plugin to Qwen Token Plan: it backs the `web_search` tool
+  with any OpenAI-compatible Responses API gateway whose models actually
+  expose `web_search`. Qwen Token Plan stays as the default example backend,
+  and the `model` row now warns that unsupported models fail loudly with
+  `WEB_PROVIDER_ERROR` — never a no-search fallback.
+- **Removed the no-op settings.yaml example** — the example only restated
+  defaults, and the settings card (higher precedence) is the everyday entry
+  point; the settings section remains as the headless fallback.
+- **Generalized copy** — settings card hints (zh / en) and code comments no
+  longer name a specific gateway; the protocol note now reads as the general
+  Responses-API-vs-Chat-Completions caveat.
+
 ## [0.1.3] - 2026-09-04
 
 ### Changed
