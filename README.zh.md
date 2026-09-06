@@ -3,7 +3,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **DeepSeek Harness（DSH）网页搜索提供方插件**：把内置 `web_search` 工具接到
-**千问 Token Plan** 的 OpenAI 兼容 **Responses API** 及其原生 **`web_search`** 工具上。
+任意 **OpenAI 兼容 Responses API** 网关，用网关原生的联网搜索返回**结构化引用
+来源**。端点、模型、密钥引用随手可换——只要模型在网关上支持 `web_search`
+工具即可。默认指向千问 Token Plan，仅作开箱即用的示例。
 
 - 默认模型：`deepseek-v4-flash-0731`
 - 默认端点：`https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`
@@ -12,14 +14,13 @@
 ## 为什么
 
 DSH 自带的搜索提供方（`deepseek-official`）走的是 DeepSeek 自家 Anthropic 兼容
-端点——它指不到千问 Token Plan（该网关没有 Anthropic 路由），而且部署时要
-切换很麻烦。本插件是**一等公民插件**：向 `ctx.web` 注册搜索提供方，并把共享的
-`searchProvider` 覆盖到它，与生态内其他提供方插件一致。搜索模型与对话模型完全
-解耦——任意对话模型都可以搭配使用。
+端点——指不到其他网关，而且部署时要切换很麻烦。本插件是**一等公民插件**：
+向 `ctx.web` 注册搜索提供方，并把共享的 `searchProvider` 覆盖到它，与生态内
+其他提供方插件一致。搜索模型与对话模型完全解耦——任意对话模型都可以搭配使用。
 
-> **为什么用 Responses API？** 千问 Token Plan 的内置联网搜索只在 Responses API
-> （`/responses`）上、且显式声明 `tools: [{type: "web_search"}]` 时才会触发——
-> Chat Completions 的 `enable_search` 参数在该网关上会被静默忽略。本插件走
+> **为什么走 Responses API？** 很多 OpenAI 兼容网关的内置联网搜索只在
+> Responses API（`/responses`）上、且显式声明 `tools: [{type: "web_search"}]`
+> 时才会触发——Chat Completions 的搜索开关参数会被静默忽略。本插件走
 > Responses 协议，并解析 `web_search_call` 块里结构化的 `action.sources` 为
 > seam 标准的引用来源。
 
@@ -82,7 +83,7 @@ Agent 循环等官方卡片同一形态：编辑先暂存（header 出现「未�
       tools: [{ type: "web_search" }]
             │
             ▼
-      千问 Token Plan deepseek-v4-flash-0731 ──> 结构化 web_search_call sources
+      你配置的网关与模型（默认 deepseek-v4-flash-0731）──> 结构化 web_search_call sources
             │
             ▼
       对话 LLM 基于搜索结果作答

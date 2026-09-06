@@ -3,8 +3,11 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A **web search provider plugin** for the **DeepSeek Harness (DSH)** that backs
-the built-in `web_search` tool with the **Qwen Token Plan** OpenAI-compatible
-**Responses API** and its native **`web_search`** tool.
+the built-in `web_search` tool with any **OpenAI-compatible Responses API**
+gateway's native web search, returning **structured citation sources**.
+Endpoint, model, and key reference are yours to swap — the only requirement
+is a model that actually exposes the `web_search` tool on its gateway. The
+default points at Qwen Token Plan, purely as a working out-of-the-box example.
 
 - Default model: `deepseek-v4-flash-0731`
 - Default endpoint: `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`
@@ -13,19 +16,18 @@ the built-in `web_search` tool with the **Qwen Token Plan** OpenAI-compatible
 ## Why
 
 The shipped DSH search provider (`deepseek-official`) calls DeepSeek's own
-Anthropic-compatible endpoint — it cannot be pointed at Qwen Token Plan (no
-Anthropic route there), and it is hard to switch per deployment. This plugin
-is a **first-class DSH plugin**: it registers a `ctx.web` search provider and
-overrides the shared `searchProvider` to it, exactly like the ecosystem's
-other provider plugins. Search and conversation models stay fully
-decoupled — use it with any chat LLM.
+Anthropic-compatible endpoint — it cannot be pointed at other gateways, and
+switching per deployment is hard. This plugin is a **first-class DSH plugin**:
+it registers a `ctx.web` search provider and overrides the shared
+`searchProvider` to it, exactly like the ecosystem's other provider plugins.
+Search and conversation models stay fully decoupled — use it with any chat LLM.
 
-> **Why Responses API?** Built-in web search on Qwen Token Plan only triggers
-> through the Responses API (`/responses`) with an explicit
-> `tools: [{type: "web_search"}]` declaration — the Chat Completions
-> `enable_search` flag is silently ignored on that gateway. This plugin speaks
-> the Responses protocol and parses the structured `web_search_call` blocks'
-> `action.sources` into seam-standard citation sources.
+> **Why Responses API?** Many OpenAI-compatible gateways only trigger their
+> built-in web search through the Responses API (`/responses`) with an
+> explicit `tools: [{type: "web_search"}]` declaration — Chat Completions
+> search flags are silently ignored there. This plugin speaks the Responses
+> protocol and parses the structured `web_search_call` blocks' `action.sources`
+> into seam-standard citation sources.
 
 ## Install
 
@@ -92,7 +94,7 @@ you ──> chat LLM
      tools: [{ type: "web_search" }]
             │
             ▼
-     Qwen Token Plan deepseek-v4-flash-0731 ──> structured web_search_call sources
+     your configured gateway/model (default deepseek-v4-flash-0731) ──> structured web_search_call sources
             │
             ▼
      chat LLM answers grounded in the results
