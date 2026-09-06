@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-09-04
+
+### Changed
+
+- **Settings card matches the shipped plugin cards** — the configuration card
+  now reuses the exact `PluginCard` face the Shell / Agent loop / Subagent /
+  Web search cards render: a collapsed header (title + one-line description +
+  "unsaved" badge + rotating chevron), official `ValueField`/`SecretField`
+  field layout, and a right-aligned footer with discard/save that collapses
+  the card after a successful save.
+- **Edits stage until saved** — the form keeps a draft and shows an "unsaved"
+  badge while it differs from the stored config; discard reverts it; a failed
+  save keeps the card open with the error in the footer (previously the card
+  was always expanded and wrote on every save click without staged state).
+- **Localized copy (zh / en)** — all card strings register under the plugin's
+  own locale namespace and follow Settings → Language, like the shipped cards.
+
 ## [0.1.2] - 2026-09-04
 
 ### Changed

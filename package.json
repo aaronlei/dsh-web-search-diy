@@ -1,6 +1,6 @@
 {
   "name": "dsh-web-search-diy",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "DSH web search provider: Qwen Token Plan Responses API with the native web_search tool. Registers a ctx.web search provider (default model deepseek-v4-flash-0731) and overrides the shared searchProvider to it; UI copy follows the app language (zh / en).",
   "license": "MIT",
   "author": "aaronlei",
