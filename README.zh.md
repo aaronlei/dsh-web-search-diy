@@ -59,16 +59,15 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 | `apiKey` | — | 字面 API key；设置时优先于 `apiKeyEnv` |
 | `apiKeyEnv` | `QWEN_TOKEN_PLAN_CN_API_KEY` | 每次搜索经 `ctx.credentials` 解析的凭据引用 |
 | `baseURL` | `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1` | Responses API 基址；自动追加 `/responses` |
-| `model` | `deepseek-v4-flash-0731` | 端点承载的模型（任意带 `web_search` 的 Responses-API 模型都可用） |
+| `model` | `deepseek-v4-flash-0731` | 端点承载的模型；换模型前先确认它在网关上真的支持 `web_search` 工具（并非所有模型都支持实时联网搜索），不支持时搜索会以 `WEB_PROVIDER_ERROR` 亮错、不做无搜索降级 |
 | `maxOutputTokens` | `1024` | 单次搜索的 `max_output_tokens` |
 
-### 示例
+### 设置卡片
 
-```yaml
-# ~/.dsh/settings.yaml
-web-search-diy:
-  model: deepseek-v4-flash-0731
-```
+配置卡片在 **设置 → 插件 → 插件配置 → 自定义网页搜索**，与随包的终端 /
+Agent 循环等官方卡片同一形态：编辑先暂存（header 出现「未保存」徽标），点
+**保存** 才写入，**放弃修改** 恢复为已存值；保存即生效，无需重启。卡片文案
+跟随 设置 → 语言（zh / en）。API 密钥输入框只写不读：留空表示保持已存密钥。
 
 ## 工作原理
 
@@ -101,4 +100,4 @@ web-search-diy:
 
 ## 许可证
 
-[MIT](LICENSE)
+MIT — see [LICENSE](LICENSE). Copyright (c) 2026 aaronlei.

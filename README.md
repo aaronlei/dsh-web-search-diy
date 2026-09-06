@@ -66,16 +66,18 @@ settings section / entry config > package defaults.**
 | `apiKey` | — | Literal API key; overrides `apiKeyEnv` when set |
 | `apiKeyEnv` | `QWEN_TOKEN_PLAN_CN_API_KEY` | Credential reference resolved per search via `ctx.credentials` |
 | `baseURL` | `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1` | Responses API base; `/responses` is appended |
-| `model` | `deepseek-v4-flash-0731` | Model served by the endpoint (any Responses-API model with `web_search` works) |
+| `model` | `deepseek-v4-flash-0731` | Model served by the endpoint; before switching, confirm the model actually exposes the `web_search` tool on the gateway (not all models support live web search) — otherwise the search fails loudly with `WEB_PROVIDER_ERROR`, never a no-search fallback |
 | `maxOutputTokens` | `1024` | `max_output_tokens` for one search call |
 
-### Example
+### Settings card
 
-```yaml
-# ~/.dsh/settings.yaml
-web-search-diy:
-  model: deepseek-v4-flash-0731
-```
+The configuration card lives under **Settings → Plugins → Plugin
+configuration → Custom web search**, in the same form as the shipped Shell /
+Agent loop cards: edits stage locally (an "unsaved" badge appears in the
+header) and only **Save** writes, while **Discard** reverts to the stored
+values. Saving takes effect immediately — no restart. Card copy follows
+Settings → Language (zh / en). The API key input is write-only: leave it
+blank to keep the stored key.
 
 ## How it works
 
@@ -110,4 +112,4 @@ provider resolves it per search; no key is retained on the provider.
 
 ## License
 
-[MIT](LICENSE)
+MIT — see [LICENSE](LICENSE). Copyright (c) 2026 aaronlei.
