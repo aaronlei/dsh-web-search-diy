@@ -20,7 +20,9 @@
 - 默认密钥引用：`QWEN_TOKEN_PLAN_CN_API_KEY`
 
 `zhipu-*` 模式：默认端点 `https://open.bigmodel.cn/api/paas/v4`，默认密钥
-引用 `ZHIPU_API_KEY`；`zhipu-chat-search` 默认模型 `glm-4-flash`。参考
+引用 `ZHIPU_API_KEY`；`zhipu-chat-search` 默认模型 `glm-5.3-flash`（配思考
+强度 `low`，实测约 3.5s——免费档 `glm-4.7-flash` 经常限流 429 不可用，不作为
+默认）。参考
 [智谱联网搜索文档](https://docs.bigmodel.cn/cn/guide/tools/web-search)。
 
 ## 为什么

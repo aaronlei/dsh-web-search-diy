@@ -27,10 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`glm-4-flash`) tolerate the parameter as a no-op.
 - **Mode-scoped defaults** — `baseURL` / `apiKeyEnv` / `model` left empty
   inherit the current mode's default (`https://open.bigmodel.cn/api/paas/v4`,
-  `ZHIPU_API_KEY`, `glm-4-flash` for the zhipu modes). Section values equal to
+  `ZHIPU_API_KEY`, `glm-5.3-flash` for the zhipu modes). Section values equal to
   the historical responses-mode defaults are treated as schema-default fossils
   and yield to the zhipu defaults on mode switch; explicit custom values are
-  always honored.
+  always honored. The zhipu chat default deliberately avoids the free-tier
+  `glm-4.7-flash` (GLM-4-Flash's successor), which is frequently rate-limited
+  with HTTP 429 code 1305.
 - **Settings card grows with the protocol** — a radio-group protocol selector
   and conditional Zhipu fields (official model-selection row styling), a
   toggle for intent recognition (official switch styling), and updated zh/en

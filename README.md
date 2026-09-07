@@ -22,7 +22,9 @@ its gateway.
 
 In `zhipu-*` modes: default endpoint `https://open.bigmodel.cn/api/paas/v4`,
 default key reference `ZHIPU_API_KEY`, and `zhipu-chat-search` defaults its
-model to `glm-4-flash`. See the
+model to `glm-5.3-flash` (with thinking effort `low`, ~3.5s live-verified —
+the free-tier `glm-4.7-flash` is frequently rate-limited with HTTP 429 and is
+not the default). See the
 [Zhipu web search docs](https://docs.bigmodel.cn/cn/guide/tools/web-search).
 
 ## Why
