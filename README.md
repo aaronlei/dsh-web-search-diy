@@ -3,15 +3,27 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A **web search provider plugin** for the **DeepSeek Harness (DSH)** that backs
-the built-in `web_search` tool with any **OpenAI-compatible Responses API**
-gateway's native web search, returning **structured citation sources**.
-Endpoint, model, and key reference are yours to swap — the only requirement
-is a model that actually exposes the `web_search` tool on its gateway. The
-default points at Qwen Token Plan, purely as a working out-of-the-box example.
+the built-in `web_search` tool with multiple search backends, returning
+**structured citation sources**. A single `mode` switch selects the protocol:
+
+| `mode` | Protocol | Backend |
+|---|---|---|
+| `responses` (default) | OpenAI-compatible **Responses API** + `web_search` tool | Qwen Token Plan (default example), OpenAI, any compatible gateway |
+| `zhipu-web-search` | Zhipu **Web Search API** (basic retrieval, `POST /web_search`) | Zhipu open platform; raw structured results, no model turn |
+| `zhipu-chat-search` | Zhipu **Web Search in Chat** (answer augmentation, `/chat/completions` + `web_search` tool) | Zhipu open platform; retrieval fused into a grounded answer |
+
+In `responses` mode, endpoint, model, and key reference are yours to swap —
+the only requirement is a model that actually exposes the `web_search` tool on
+its gateway.
 
 - Default model: `deepseek-v4-flash-0731`
 - Default endpoint: `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`
 - Default key reference: `QWEN_TOKEN_PLAN_CN_API_KEY`
+
+In `zhipu-*` modes: default endpoint `https://open.bigmodel.cn/api/paas/v4`,
+default key reference `ZHIPU_API_KEY`, and `zhipu-chat-search` defaults its
+model to `glm-4-flash`. See the
+[Zhipu web search docs](https://docs.bigmodel.cn/cn/guide/tools/web-search).
 
 ## Why
 
@@ -65,11 +77,24 @@ settings section / entry config > package defaults.**
 
 | Key | Default | Meaning |
 |---|---|---|
+| `mode` | `responses` | Protocol mode: `responses` / `zhipu-web-search` / `zhipu-chat-search` |
 | `apiKey` | — | Literal API key; overrides `apiKeyEnv` when set |
-| `apiKeyEnv` | `QWEN_TOKEN_PLAN_CN_API_KEY` | Credential reference resolved per search via `ctx.credentials` |
-| `baseURL` | `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1` | Responses API base; `/responses` is appended |
-| `model` | `deepseek-v4-flash-0731` | Model served by the endpoint; before switching, confirm the model actually exposes the `web_search` tool on the gateway (not all models support live web search) — otherwise the search fails loudly with `WEB_PROVIDER_ERROR`, never a no-search fallback |
-| `maxOutputTokens` | `1024` | `max_output_tokens` for one search call |
+| `apiKeyEnv` | per mode (see above) | Credential reference resolved per search via `ctx.credentials` |
+| `baseURL` | per mode (see above) | API base; `/responses`, `/web_search`, or `/chat/completions` is appended per mode |
+| `model` | per mode (see above) | Model served by the endpoint; `zhipu-web-search` has no model turn and ignores this key |
+| `maxOutputTokens` | `1024` | Output cap for one search turn (`max_output_tokens` in `responses`, `max_tokens` in `zhipu-chat-search`) |
+| `searchEngine` | `search_std` | Zhipu engine: `search_std` / `search_pro` / `search_pro_sogou` / `search_pro_quark` (Zhipu modes only) |
+| `count` | `10` | Zhipu result count (1-50); a request-supplied `maxResults` cap takes precedence (Zhipu modes only) |
+| `searchRecencyFilter` | `noLimit` | Zhipu recency window: `noLimit` / `oneDay` / `oneWeek` / `oneMonth` / `oneYear` (Zhipu modes only) |
+| `contentSize` | `medium` | Zhipu snippet size: `medium` / `high` (Zhipu modes only) |
+| `searchDomainFilter` | — | Zhipu domain allowlist, e.g. `www.example.com` (Zhipu modes only) |
+| `searchIntent` | `false` | Zhipu intent recognition; off searches directly (Zhipu `zhipu-web-search` only) |
+| `searchPrompt` | — | Zhipu chat search prompt; blank uses the official default (`zhipu-chat-search` only) |
+
+> `apiKeyEnv` / `baseURL` / `model` left empty inherit the current mode's
+> default. Values fossilized into a section by the old schema defaults (the
+> Qwen endpoint/model/reference) yield to the zhipu defaults when you switch
+> to a zhipu mode; explicitly customized values are always honored.
 
 ### Settings card
 
@@ -90,27 +115,36 @@ you ──> chat LLM
      web_search tool (model-agnostic)
             │ ctx.web seam ──> diy-search provider
             ▼
-     POST {baseURL}/responses
-     tools: [{ type: "web_search" }]
-            │
-            ▼
-     your configured gateway/model (default deepseek-v4-flash-0731) ──> structured web_search_call sources
+     ├─ responses:        POST {baseURL}/responses   tools: [{ type: "web_search" }]
+     ├─ zhipu-web-search: POST {baseURL}/web_search  (raw retrieval, no model turn)
+     └─ zhipu-chat-search:POST {baseURL}/chat/completions  tools: [{ type: "web_search", web_search: {...} }]
             │
             ▼
      chat LLM answers grounded in the results
 ```
 
-Each search is one Responses API call (a full model turn). Results return as
-deduped `sources[]` (url + optional title from `url_citation` annotations)
-plus the model's grounded `content`. A response without any `web_search_call`
-block fails loudly with `WEB_PROVIDER_ERROR` — never a prose-scraping
-fallback.
+- **responses**: each search is one Responses API call (a full model turn).
+  Results return as deduped `sources[]` (url + optional title from
+  `url_citation` annotations) plus the model's grounded `content`. A response
+  without any `web_search_call` block fails loudly with `WEB_PROVIDER_ERROR`
+  — never a prose-scraping fallback.
+- **zhipu-web-search**: `search_result[]` maps directly into deduped
+  `sources[]` (url + title), and a digest of the top title-plus-snippet
+  entries becomes the `content` overview. An empty result set is a valid
+  outcome and returns empty `sources[]` rather than an error.
+- **zhipu-chat-search**: `choices[0].message.content` is the grounded answer
+  (`content`); the tool's `search_result: true` declaration makes the endpoint
+  attach source details, which are parsed defensively from the message-level
+  or root-level `web_search` field into `sources[]`. A grounded answer without
+  source details is still a usable result.
 
 ## Credential
 
-Store the key through the web **Models** page / credentials service under
-`QWEN_TOKEN_PLAN_CN_API_KEY`, or export it in the launching environment. The
-provider resolves it per search; no key is retained on the provider.
+Store the key through the web **Models** page / credentials service (the
+default reference is per mode: `QWEN_TOKEN_PLAN_CN_API_KEY` in `responses`
+mode, `ZHIPU_API_KEY` in the zhipu modes), or export it in the launching
+environment. The provider resolves it per search; no key is retained on the
+provider.
 
 ## License
 

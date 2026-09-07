@@ -1,7 +1,7 @@
 {
   "name": "dsh-web-search-diy",
-  "version": "0.1.4",
-  "description": "DSH web search provider over any OpenAI-compatible Responses API gateway exposing the native web_search tool. Registers a ctx.web search provider (defaults to Qwen Token Plan as a working example) and overrides the shared searchProvider to it; UI copy follows the app language (zh / en).",
+  "version": "0.2.0",
+  "description": "DSH web search provider with three selectable protocols: any OpenAI-compatible Responses API gateway exposing the native web_search tool, Zhipu's Web Search API (basic retrieval), and Zhipu's Web Search in Chat (answer augmentation). Registers a ctx.web search provider and overrides the shared searchProvider to it; UI copy follows the app language (zh / en).",
   "license": "MIT",
   "author": "aaronlei",
   "publishConfig": {
@@ -56,6 +56,9 @@
     "dashscope",
     "openai-compatible",
     "responses-api",
+    "zhipu",
+    "bigmodel",
+    "glm",
     "deepseek"
   ],
   "repository": {

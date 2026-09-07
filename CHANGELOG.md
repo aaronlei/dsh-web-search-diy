@@ -5,6 +5,48 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-09-06
+
+### Added
+
+- **Zhipu BigModel support via a `mode` switch** — the provider now speaks
+  three protocols: the historical `responses` (OpenAI-compatible Responses
+  API, default and unchanged), `zhipu-web-search` (Zhipu's Web Search API,
+  `POST /web_search` — raw structured results, no model turn), and
+  `zhipu-chat-search` (Zhipu's Web Search in Chat, `/chat/completions` with
+  the `web_search` tool — grounded answer plus cited sources).
+- **Zhipu search options** — `searchEngine` (`search_std`/`search_pro`/
+  `search_pro_sogou`/`search_pro_quark`), `count` (1-50, with the seam
+  request's `maxResults` taking precedence), `searchRecencyFilter`,
+  `contentSize`, `searchDomainFilter`, `searchIntent` (basic retrieval only),
+  and `searchPrompt` (chat mode only).
+- **Mode-scoped defaults** — `baseURL` / `apiKeyEnv` / `model` left empty
+  inherit the current mode's default (`https://open.bigmodel.cn/api/paas/v4`,
+  `ZHIPU_API_KEY`, `glm-4-flash` for the zhipu modes). Section values equal to
+  the historical responses-mode defaults are treated as schema-default fossils
+  and yield to the zhipu defaults on mode switch; explicit custom values are
+  always honored.
+- **Settings card grows with the protocol** — a radio-group protocol selector
+  and conditional Zhipu fields (official model-selection row styling), a
+  toggle for intent recognition (official switch styling), and updated zh/en
+  copy; fields only render where their protocol applies.
+
+### Fixed
+
+- **Basic retrieval keeps its digest when entries carry no `link`** — live
+  testing showed some Zhipu credentials/engines return `search_result[]`
+  entries with an empty `link`, which previously collapsed the result to
+  empty `sources` with no `content`. The digest is now produced whenever any
+  entries exist; only entries with a usable `link` become sources.
+
+### Changed
+
+- `search()` dispatches per mode over a shared fetch/error path; the
+  `responses` branch is byte-for-byte the historical request shape.
+- Zhipu mappings return empty `sources[]` as a valid outcome instead of
+  erroring; `zhipu-chat-search` still fails loudly when no assistant message
+  comes back at all.
+
 ## [0.1.4] - 2026-09-04
 
 ### Changed
