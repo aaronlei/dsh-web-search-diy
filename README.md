@@ -90,6 +90,7 @@ settings section / entry config > package defaults.**
 | `searchDomainFilter` | — | Zhipu domain allowlist, e.g. `www.example.com` (Zhipu modes only) |
 | `searchIntent` | `false` | Zhipu intent recognition; off searches directly (Zhipu `zhipu-web-search` only) |
 | `searchPrompt` | — | Zhipu chat search prompt; blank uses the official default (`zhipu-chat-search` only) |
+| `reasoningEffort` | `low` | Thinking effort (`reasoning_effort`) for the chat turn: `low` / `high` / `max`; `low` keeps thinking-only models like GLM-5.3-Flash fast (`zhipu-chat-search` only) |
 
 > `apiKeyEnv` / `baseURL` / `model` left empty inherit the current mode's
 > default. Values fossilized into a section by the old schema defaults (the

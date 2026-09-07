@@ -82,6 +82,7 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 | `searchDomainFilter` | — | 智谱域名白名单，如 `www.example.com`（仅智谱模式） |
 | `searchIntent` | `false` | 智谱意图识别；关闭则跳过识别直接搜索（仅 `zhipu-web-search` 模式） |
 | `searchPrompt` | — | 智谱问答增强的搜索提示词，留空用官方默认（仅 `zhipu-chat-search` 模式） |
+| `reasoningEffort` | `low` | 问答增强回合的思考强度 `reasoning_effort`：`low` / `high` / `max`；`low` 让 GLM-5.3-Flash 这类强制思考模型保持快速（仅 `zhipu-chat-search` 模式） |
 
 > `apiKeyEnv` / `baseURL` / `model` 留空时按当前 `mode` 取默认；历史配置里由
 > schema 默认固化的 Qwen 地址/模型/引用在切换到智谱模式时自动让位给智谱

@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   request's `maxResults` taking precedence), `searchRecencyFilter`,
   `contentSize`, `searchDomainFilter`, `searchIntent` (basic retrieval only),
   and `searchPrompt` (chat mode only).
+- **Chat thinking-effort knob** — `reasoningEffort` (`low`/`high`/`max`,
+  default `low`) maps to the chat turn's `reasoning_effort`, keeping
+  thinking-only models such as GLM-5.3-Flash fast for search turns. Verified
+  live: `low` answers in ~3.5s with empty reasoning content, and older models
+  (`glm-4-flash`) tolerate the parameter as a no-op.
 - **Mode-scoped defaults** — `baseURL` / `apiKeyEnv` / `model` left empty
   inherit the current mode's default (`https://open.bigmodel.cn/api/paas/v4`,
   `ZHIPU_API_KEY`, `glm-4-flash` for the zhipu modes). Section values equal to
