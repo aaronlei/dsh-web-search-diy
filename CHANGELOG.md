@@ -25,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   thinking-only models such as GLM-5.3-Flash fast for search turns. Verified
   live: `low` answers in ~3.5s with empty reasoning content, and older models
   (`glm-4-flash`) tolerate the parameter as a no-op.
+- **Responses reasoning-effort knob** — `responsesReasoningEffort`
+  (`low`/`high`, unset by default) passes the OpenAI-standard
+  `reasoning.effort` on the responses turn. Unset sends no `reasoning`
+  parameter — the historical body stays byte-exact — so gateways that reject
+  unknown parameters keep working; a Default option in the card selects the
+  unset state explicitly.
 - **Mode-scoped defaults** — `baseURL` / `apiKeyEnv` / `model` left empty
   inherit the current mode's default (`https://open.bigmodel.cn/api/paas/v4`,
   `ZHIPU_API_KEY`, `glm-5.3-flash` for the zhipu modes). Section values equal to

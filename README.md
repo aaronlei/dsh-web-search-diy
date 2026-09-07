@@ -93,6 +93,7 @@ settings section / entry config > package defaults.**
 | `searchIntent` | `false` | Zhipu intent recognition; off searches directly (Zhipu `zhipu-web-search` only) |
 | `searchPrompt` | — | Zhipu chat search prompt; blank uses the official default (`zhipu-chat-search` only) |
 | `reasoningEffort` | `low` | Thinking effort (`reasoning_effort`) for the chat turn: `low` / `high` / `max`; `low` keeps thinking-only models like GLM-5.3-Flash fast (`zhipu-chat-search` only) |
+| `responsesReasoningEffort` | — (unset) | OpenAI-standard `reasoning.effort` for the responses turn: `low` / `high`; unset sends no `reasoning` parameter and follows the model's own mode — keep it unset if the gateway rejects unknown parameters (`responses` mode only) |
 
 > `apiKeyEnv` / `baseURL` / `model` left empty inherit the current mode's
 > default. Values fossilized into a section by the old schema defaults (the
