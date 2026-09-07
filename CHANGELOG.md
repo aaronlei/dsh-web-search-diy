@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and conditional Zhipu fields (official model-selection row styling), a
   toggle for intent recognition (official switch styling), and updated zh/en
   copy; fields only render where their protocol applies.
+- **Mode switch fills in the official endpoint** — selecting a mode stages
+  that mode's official address (Zhipu: `https://open.bigmodel.cn/api/paas/v4`)
+  into the endpoint field, so the settled addresses never need manual lookup;
+  the field shows the address as a placeholder and a customized endpoint is
+  never overwritten.
 
 ### Fixed
 
