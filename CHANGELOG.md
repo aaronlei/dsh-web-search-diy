@@ -5,6 +5,24 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-09-18
+
+### Changed
+
+- **Configuration UI re-homed to the new Plugins page** — dsh
+  0.1.6-alpha.2 removed the legacy `settings.plugin.item` slot (the old
+  Settings → Plugins → Plugin configuration page) and moved plugin
+  configuration to the new sidebar Plugins page. The client half now registers
+  its form into `plugins.row.config` under the key
+  `dsh-web-search-diy#web-search-diy`: the `web-search-diy` row on the
+  bundle's page gains a Configure control opening the full-page form, which
+  serves `view: 'summary'` (one-liner) and `view: 'page'` (staged form with
+  discard/save) per the new owner-props contract. Save still rides the
+  plugin's own `/api/web-search-diy/config` endpoint; the host half, the
+  locale dictionaries, and the save semantics are unchanged. The collapsed
+  card face, chevron, and unsaved badge are gone — the page draws the title,
+  icon, and crumb.
+
 ## [0.2.0] - 2026-09-06
 
 ### Added
