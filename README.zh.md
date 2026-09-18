@@ -66,7 +66,7 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 
 ## 配置
 
-选项优先级：**UI 管理文件（`$DSH_HOME/dsh-web-search-diy.json`，由设置卡片写入）
+选项优先级：**UI 管理文件（`$DSH_HOME/dsh-web-search-diy.json`，由配置页写入）
 > settings 段 / entry 配置 > 包默认值。**
 
 | 键 | 默认值 | 含义 |
@@ -91,11 +91,12 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 > schema 默认固化的 Qwen 地址/模型/引用在切换到智谱模式时自动让位给智谱
 > 默认值，显式自定义的值则始终尊重。
 
-### 设置卡片
+### 配置页
 
-配置卡片在 **设置 → 插件 → 插件配置 → 自定义网页搜索**，与随包的终端 /
-Agent 循环等官方卡片同一形态：编辑先暂存（header 出现「未保存」徽标），点
-**保存** 才写入，**放弃修改** 恢复为已存值；保存即生效，无需重启。卡片文案
+配置页在侧栏 **插件 → dsh-web-search-diy → `web-search-diy` 行的「配置」**
+（注册进 dsh 0.1.6-alpha.2 起的 `plugins.row.config` slot；旧「设置 → 插件 →
+插件配置」页随该版本移除）。页面形态与官方插件配置页一致：编辑先暂存，点
+**保存** 才写入，**放弃修改** 恢复为已存值；保存即生效，无需重启。页面文案
 跟随 设置 → 语言（zh / en）。API 密钥输入框只写不读：留空表示保持已存密钥。
 
 ## 工作原理

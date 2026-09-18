@@ -74,7 +74,7 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 ## Configuration
 
 The provider resolves options with precedence: **UI-managed file
-(`$DSH_HOME/dsh-web-search-diy.json`, written by the Settings card) >
+(`$DSH_HOME/dsh-web-search-diy.json`, written by the configuration page) >
 settings section / entry config > package defaults.**
 
 | Key | Default | Meaning |
@@ -100,15 +100,17 @@ settings section / entry config > package defaults.**
 > Qwen endpoint/model/reference) yield to the zhipu defaults when you switch
 > to a zhipu mode; explicitly customized values are always honored.
 
-### Settings card
+### Configuration page
 
-The configuration card lives under **Settings → Plugins → Plugin
-configuration → Custom web search**, in the same form as the shipped Shell /
-Agent loop cards: edits stage locally (an "unsaved" badge appears in the
-header) and only **Save** writes, while **Discard** reverts to the stored
-values. Saving takes effect immediately — no restart. Card copy follows
-Settings → Language (zh / en). The API key input is write-only: leave it
-blank to keep the stored key.
+The configuration page lives in the sidebar under **Plugins →
+dsh-web-search-diy → the `web-search-diy` row's Configure** (registered into
+the `plugins.row.config` slot introduced in dsh 0.1.6-alpha.2; the legacy
+**Settings → Plugins → Plugin configuration** page was removed in that
+release). The page matches the official plugin configuration pages: edits
+stage locally and only **Save** writes, while **Discard** reverts to the
+stored values. Saving takes effect immediately — no restart. Page copy
+follows Settings → Language (zh / en). The API key input is write-only: leave
+it blank to keep the stored key.
 
 ## How it works
 
