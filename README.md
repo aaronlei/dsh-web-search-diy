@@ -143,6 +143,11 @@ you ──> chat LLM
   attach source details, which are parsed defensively from the message-level
   or root-level `web_search` field into `sources[]`. A grounded answer without
   source details is still a usable result.
+- **Response decoding is dispatcher-proof**: bodies are read as bytes and
+  inflated by magic number when compressed, and requests send
+  `accept-encoding: identity`. This survives dsh's cross-version global undici
+  dispatcher (where `response.json()` would parse raw gzip bytes), with hard
+  caps (8 MiB wire, 16 MiB decoded) against decompression bombs.
 
 ## Credential
 

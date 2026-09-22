@@ -5,6 +5,43 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-09-22
+
+### Fixed
+
+- **Searches no longer fail on compressed responses** — dsh's
+  `@deepseek-ai/dsh-http-proxy` installs the process's global undici
+  dispatcher from its own bundled undici 8.x, while the provider's plain
+  `fetch()` is Node's built-in undici resolving that same dispatcher. Across
+  that version boundary the built-in fetch hands back the still-compressed
+  stream and `content-encoding` is not even readable, which made
+  `response.json()` parse raw gzip bytes and every search fail as
+  "web search returned an unprocessable response body: SyntaxError:
+  Unexpected token '\u001f' ...". Bodies are now read as bytes and inflated
+  by magic number (gzip `1f 8b`, zlib `0x78` + the RFC 1950 checksum)
+  without trusting the header, and requests ask for `accept-encoding:
+  identity` up front so gateways skip compression altogether. Compressed
+  HTTP error bodies are decoded too, so the API's real error message
+  surfaces instead of a bare HTTP status.
+
+### Security
+
+- **Decompression-bomb caps** — the response body is streamed with a hard
+  wire cap (8 MiB): crossing it cancels the download instead of buffering
+  the rest, and inflation runs with zlib's `maxOutputLength` (16 MiB) so a
+  tiny compressed body cannot expand without bound while blocking the event
+  loop. The gzip header's declared ISIZE is never trusted
+  (attacker-controlled). Over-limit bodies fail fast as the usual
+  `unprocessable response body` error.
+
+### Added
+
+- **`npm test`** — a `node:test` regression suite (11 cases) that stubs
+  global fetch with the broken cross-dispatcher response shape (compressed
+  bytes, no readable encoding header) plus the healthy shapes: gzip /
+  deflate / plain decoding in all three modes, the `accept-encoding:
+  identity` request header, compressed error bodies, and both bomb caps.
+
 ## [0.2.1] - 2026-09-18
 
 ### Changed

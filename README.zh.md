@@ -126,6 +126,10 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 - **zhipu-chat-search**：`choices[0].message.content` 即融合回答（`content`），
   工具声明的 `search_result: true` 让端点附带来源详情，从消息级/根级
   `web_search` 字段防御式解析为 `sources[]`；有回答而无来源详情同样可用。
+- **响应解码对 dispatcher 免疫**：响应体按字节读取，压缩时按魔数就地解压，
+  请求显式声明 `accept-encoding: identity`。这使插件能扛过 dsh 的跨版本全局
+  undici dispatcher（该环境下 `response.json()` 会拿到原始 gzip 字节），并设
+  有解压炸弹硬上限（线路上限 8 MiB、解压上限 16 MiB）。
 
 ## 凭据
 
