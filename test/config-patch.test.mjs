@@ -144,7 +144,9 @@ describe("saveFileConfig", () => {
 		const expected = {
 			version: 2,
 			mode: "zhipu-web-search",
-			modes: { "zhipu-web-search": { model: "glm-5.3-flash", count: 7 } }
+			// `model` and `maxUses` are not this mode's keys, so the leftovers go;
+			// `baseURL` is cleared, and `count` is the value just saved.
+			modes: { "zhipu-web-search": { count: 7 } }
 		};
 		assert.deepEqual(document, expected);
 		assert.deepEqual(JSON.parse(readFileSync(join(home, CONFIG_FILE), "utf8")), expected);
@@ -176,11 +178,30 @@ describe("saveFileConfig", () => {
 
 	it("carries a legacy flat file into the selected mode's bucket", () => {
 		writeFileSync(join(home, CONFIG_FILE), JSON.stringify({ mode: "zhipu-web-search", apiKeyEnv: "ZAI_CODING_CN_API_KEY", count: 20 }));
-		const document = saveFileConfig("zhipu-web-search", { maxUses: 5 }, []);
+		const document = saveFileConfig("zhipu-web-search", { searchEngine: "search_pro" }, []);
 		assert.deepEqual(document, {
 			version: 2,
 			mode: "zhipu-web-search",
-			modes: { "zhipu-web-search": { apiKeyEnv: "ZAI_CODING_CN_API_KEY", count: 20, maxUses: 5 } }
+			modes: { "zhipu-web-search": { apiKeyEnv: "ZAI_CODING_CN_API_KEY", count: 20, searchEngine: "search_pro" } }
 		});
+	});
+
+	it("keeps only the keys that mode owns, cleaning leftovers from its bucket", () => {
+		writeFileSync(join(home, CONFIG_FILE), JSON.stringify({
+			version: 2,
+			mode: "anthropic-messages",
+			modes: {
+				"anthropic-messages": { model: "deepseek-flash", anthropicThinking: "default", searchEngine: "search_std", count: 20, searchIntent: false }
+			}
+		}));
+		// The page submits its whole draft: the Zhipu-only keys and the chat prompt
+		// must not land in the Anthropic bucket, and the leftovers above must go.
+		const document = saveFileConfig("anthropic-messages", { anthropicThinking: "disabled", searchPrompt: "ignored", maxOutputTokens: 65536 }, []);
+		assert.deepEqual(document.modes["anthropic-messages"], { model: "deepseek-flash", anthropicThinking: "disabled", maxOutputTokens: 65536 });
+	});
+
+	it("keeps a mode's own keys, including ones only it owns", () => {
+		const document = saveFileConfig("zhipu-chat-search", { reasoningEffort: "max", searchPrompt: "be brief", searchIntent: true, anthropicThinking: "disabled" }, []);
+		assert.deepEqual(document.modes["zhipu-chat-search"], { reasoningEffort: "max", searchPrompt: "be brief" });
 	});
 });

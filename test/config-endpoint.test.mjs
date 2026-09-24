@@ -151,12 +151,23 @@ describe("configuration endpoint blank handling", () => {
 });
 
 describe("configuration endpoint buckets", () => {
-	it("keeps every mode's settings in its own bucket", async () => {
+	it("keeps every mode's settings in its own bucket, filtered to that mode's keys", async () => {
 		await post({ mode: "zhipu-web-search", apiKeyEnv: "ZAI_CODING_CN_API_KEY", model: "GLM-5.3-Flash", count: 20 });
 		await post({ mode: "anthropic-messages", apiKeyEnv: "DEEPSEEK_API_KEY", maxUses: 5 });
-		assert.deepEqual(storedBucket("zhipu-web-search"), { apiKeyEnv: "ZAI_CODING_CN_API_KEY", model: "GLM-5.3-Flash", count: 20 });
+		// The raw Web Search API has no model turn, so its bucket must not carry `model`.
+		assert.deepEqual(storedBucket("zhipu-web-search"), { apiKeyEnv: "ZAI_CODING_CN_API_KEY", count: 20 });
 		assert.deepEqual(storedBucket("anthropic-messages"), { apiKeyEnv: "DEEPSEEK_API_KEY", maxUses: 5 });
 		assert.equal(storedDocument().mode, "anthropic-messages");
+	});
+
+	it("ignores the page's other-mode fields and cleans them out of the bucket", async () => {
+		writeDocument({
+			version: 2,
+			mode: "anthropic-messages",
+			modes: { "anthropic-messages": { model: "deepseek-flash", searchEngine: "search_std", count: 20, searchIntent: false } }
+		});
+		await post({ mode: "anthropic-messages", model: "deepseek-flash", anthropicThinking: "disabled", searchEngine: "search_pro", count: 30, searchIntent: true, reasoningEffort: "max" });
+		assert.deepEqual(storedBucket("anthropic-messages"), { model: "deepseek-flash", anthropicThinking: "disabled" });
 	});
 
 	it("drops a bucket once nothing is left in it", async () => {
@@ -174,12 +185,14 @@ describe("configuration endpoint buckets", () => {
 		assert.equal(read.body.count, 20);
 		assert.deepEqual(read.body.modes, { "zhipu-web-search": { apiKeyEnv: "ZAI_CODING_CN_API_KEY", count: 20, maxOutputTokens: 131072 } });
 
-		// The next save rewrites the file in the bucketed shape.
-		await post({ mode: "zhipu-web-search", maxUses: 5 });
+		// The next save rewrites the file in the bucketed shape, and the raw Web
+		// Search API's bucket keeps only the keys that mode owns — `maxOutputTokens`
+		// budgets a model turn, which this mode does not have.
+		await post({ mode: "zhipu-web-search", searchEngine: "search_pro" });
 		assert.deepEqual(storedDocument(), {
 			version: 2,
 			mode: "zhipu-web-search",
-			modes: { "zhipu-web-search": { apiKeyEnv: "ZAI_CODING_CN_API_KEY", count: 20, maxOutputTokens: 131072, maxUses: 5 } }
+			modes: { "zhipu-web-search": { apiKeyEnv: "ZAI_CODING_CN_API_KEY", count: 20, searchEngine: "search_pro" } }
 		});
 	});
 

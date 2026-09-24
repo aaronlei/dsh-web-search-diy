@@ -64,8 +64,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   family, so the two Zhipu modes no longer share one set of values. A file
   written by an earlier release (one flat object) is projected onto the mode it
   selected when read, and the next save rewrites it in the bucketed shape; reads
-  never write. Downgrading after a save leaves the older plugin seeing only the
-  top-level `mode`, so keep a copy of the file if you need to roll back.
+  never write. Each bucket also holds only the keys that mode actually uses: the
+  page submits its whole form, so a field belonging to another mode is never
+  written, and a leftover of one is dropped on that mode's next save — which
+  keeps the bucket from pinning today's prefilled defaults forever.
+  Downgrading after a save leaves the older plugin seeing only the top-level
+  `mode`, so keep a copy of the file if you need to roll back.
 - **Mode-scoped defaults became table-driven** — endpoint, credential reference,
   and model defaults come from a single `MODE_PROFILES` table instead of
   `mode !== "responses"` booleans, so a new protocol touches one place rather
