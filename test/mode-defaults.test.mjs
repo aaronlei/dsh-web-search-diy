@@ -318,3 +318,33 @@ describe("credential reference chain", () => {
 	});
 });
 
+describe("per-mode buckets on disk", () => {
+	it("reads the selected mode's bucket and ignores the others", () => {
+		writeFileSync(join(home, "dsh-web-search-diy.json"), JSON.stringify({
+			version: 2,
+			mode: "anthropic-messages",
+			modes: {
+				"anthropic-messages": { model: "bucket-model", apiKeyEnv: "BUCKET_KEY" },
+				"zhipu-web-search": { model: "zhipu-model" }
+			}
+		}));
+		const options = resolveOptions(ctx, section({ mode: "responses" }));
+		assert.equal(options.mode, "anthropic-messages");
+		assert.equal(options.model, "bucket-model");
+		assert.equal(options.apiKeyEnv, "BUCKET_KEY");
+		assert.equal(options.maxOutputTokens, 65536); // not in the bucket: the mode default applies
+	});
+
+	it("projects a legacy flat file onto the mode it selected", () => {
+		writeFileSync(join(home, "dsh-web-search-diy.json"), JSON.stringify({
+			mode: "zhipu-chat-search",
+			apiKeyEnv: "ZAI_CODING_CN_API_KEY",
+			model: "GLM-5.3-Flash"
+		}));
+		const options = resolveOptions(ctx, section());
+		assert.equal(options.mode, "zhipu-chat-search");
+		assert.equal(options.apiKeyEnv, "ZAI_CODING_CN_API_KEY");
+		assert.equal(options.model, "GLM-5.3-Flash");
+	});
+});
+

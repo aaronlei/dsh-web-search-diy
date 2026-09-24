@@ -134,21 +134,53 @@ describe("buildConfigPatch", () => {
 });
 
 describe("saveFileConfig", () => {
-	it("deletes cleared keys instead of writing blanks", () => {
+	it("writes one mode's bucket and drops cleared keys", () => {
 		writeFileSync(join(home, CONFIG_FILE), JSON.stringify({
+			version: 2,
 			mode: "zhipu-web-search",
-			baseURL: "https://example.test/v1",
-			model: "glm-5.3-flash",
-			maxUses: 3
+			modes: { "zhipu-web-search": { baseURL: "https://example.test/v1", model: "glm-5.3-flash", maxUses: 3 } }
 		}));
-		const merged = saveFileConfig({ count: 7 }, ["baseURL", "maxUses"]);
-		const expected = { mode: "zhipu-web-search", model: "glm-5.3-flash", count: 7 };
-		assert.deepEqual(merged, expected);
+		const document = saveFileConfig("zhipu-web-search", { count: 7 }, ["baseURL", "maxUses"]);
+		const expected = {
+			version: 2,
+			mode: "zhipu-web-search",
+			modes: { "zhipu-web-search": { model: "glm-5.3-flash", count: 7 } }
+		};
+		assert.deepEqual(document, expected);
 		assert.deepEqual(JSON.parse(readFileSync(join(home, CONFIG_FILE), "utf8")), expected);
 	});
 
-	it("keeps untouched keys when the patch is empty", () => {
-		writeFileSync(join(home, CONFIG_FILE), JSON.stringify({ mode: "responses", model: "deepseek-flash" }));
-		assert.deepEqual(saveFileConfig({}, []), { mode: "responses", model: "deepseek-flash" });
+	it("leaves other modes' buckets alone and selects the saved mode", () => {
+		writeFileSync(join(home, CONFIG_FILE), JSON.stringify({
+			version: 2,
+			mode: "zhipu-web-search",
+			modes: {
+				"zhipu-web-search": { count: 20 },
+				"anthropic-messages": { model: "deepseek-flash" }
+			}
+		}));
+		const document = saveFileConfig("anthropic-messages", { maxUses: 5 }, []);
+		assert.equal(document.mode, "anthropic-messages");
+		assert.deepEqual(document.modes["zhipu-web-search"], { count: 20 });
+		assert.deepEqual(document.modes["anthropic-messages"], { model: "deepseek-flash", maxUses: 5 });
+	});
+
+	it("drops a bucket that ends up empty", () => {
+		writeFileSync(join(home, CONFIG_FILE), JSON.stringify({
+			version: 2,
+			mode: "responses",
+			modes: { responses: { model: "deepseek-v4-flash-0731" } }
+		}));
+		assert.deepEqual(saveFileConfig("responses", {}, ["model"]).modes, {});
+	});
+
+	it("carries a legacy flat file into the selected mode's bucket", () => {
+		writeFileSync(join(home, CONFIG_FILE), JSON.stringify({ mode: "zhipu-web-search", apiKeyEnv: "ZAI_CODING_CN_API_KEY", count: 20 }));
+		const document = saveFileConfig("zhipu-web-search", { maxUses: 5 }, []);
+		assert.deepEqual(document, {
+			version: 2,
+			mode: "zhipu-web-search",
+			modes: { "zhipu-web-search": { apiKeyEnv: "ZAI_CODING_CN_API_KEY", count: 20, maxUses: 5 } }
+		});
 	});
 });

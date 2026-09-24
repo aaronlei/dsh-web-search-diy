@@ -1,12 +1,17 @@
 /**
- * End-to-end regression for the configuration endpoint's blank handling.
+ * End-to-end regressions for the configuration endpoint.
  *
- * Reported symptom: in Anthropic mode a blank `apiVersion` saved fine while a
- * blank `maxUses` refused to save, even though both have defaults. Cause was
- * `body.maxUses !== undefined` + `Number("") === 0` in the POST handler, while
- * string fields were skipped when blank. These cases drive the real handler
- * (registered through `apply`) so the wiring and the file effect are both
- * covered, not just the pure patcher.
+ * Two behaviours are pinned here:
+ *   1. blank handling — a blank numeric field used to fail validation
+ *      (`Number("") === 0`) while a blank string field silently kept its value,
+ *      so "leave blank for the default" was true for some fields and false for
+ *      others;
+ *   2. per-mode buckets — every mode owns its own settings, so switching modes
+ *      restores that mode's values instead of overwriting them, and a legacy
+ *      flat file is projected onto the mode it selected.
+ *
+ * The real handler is driven through `apply`, so the wiring and the file effect
+ * are covered, not just the pure patcher.
  *
  * Run: node --test "test/**\/*.test.mjs"
  */
@@ -77,75 +82,125 @@ function configHandler() {
 	return handler;
 }
 
-/** POST one body and return the decoded response. */
-async function post(handler, body) {
+/** POST one body through a fresh handler and return the decoded response. */
+async function post(body) {
 	const response = fakeResponse();
-	await handler(fakeRequest("POST", body), response);
+	await configHandler()(fakeRequest("POST", body), response);
 	return { status: response.status, body: JSON.parse(response.payload) };
 }
 
-/** The persisted configuration file, or an empty object when absent. */
-function storedConfig() {
+/** GET the configuration through a fresh handler. */
+async function get() {
+	const response = fakeResponse();
+	await configHandler()(fakeRequest("GET"), response);
+	return { status: response.status, body: JSON.parse(response.payload) };
+}
+
+/** The persisted document as stored on disk. */
+function storedDocument() {
 	try {
 		return JSON.parse(readFileSync(join(home, CONFIG_FILE), "utf8"));
 	} catch {
-		return {};
+		return { version: 2, modes: {} };
 	}
 }
 
+const storedBucket = (mode) => storedDocument().modes[mode];
+const writeLegacy = (flat) => writeFileSync(join(home, CONFIG_FILE), JSON.stringify(flat));
+const writeDocument = (document) => writeFileSync(join(home, CONFIG_FILE), JSON.stringify(document));
+
 describe("configuration endpoint blank handling", () => {
 	it("saves a blank maxUses instead of rejecting it (the reported symptom)", async () => {
-		const handler = configHandler();
-		const result = await post(handler, { mode: "anthropic-messages", maxUses: "" });
+		const result = await post({ mode: "anthropic-messages", maxUses: "" });
 		assert.equal(result.status, 200);
 		assert.equal(result.body.ok, true);
-		assert.deepEqual(storedConfig(), { mode: "anthropic-messages" });
+		const document = storedDocument();
+		assert.equal(document.mode, "anthropic-messages");
+		assert.deepEqual(document.modes, {});
 	});
 
 	it("saves a blank count and maxOutputTokens the same way", async () => {
-		const handler = configHandler();
-		assert.equal((await post(handler, { count: "" })).status, 200);
-		assert.equal((await post(handler, { maxOutputTokens: "" })).status, 200);
-		assert.deepEqual(storedConfig(), {});
+		assert.equal((await post({ count: "" })).status, 200);
+		assert.equal((await post({ maxOutputTokens: "" })).status, 200);
+		assert.deepEqual(storedDocument().modes, {});
 	});
 
 	it("clears a previously stored value when the field is blanked", async () => {
-		const handler = configHandler();
-		writeFileSync(join(home, CONFIG_FILE), JSON.stringify({
+		writeDocument({
+			version: 2,
 			mode: "anthropic-messages",
-			baseURL: "https://api.deepseek.com/anthropic/v1",
-			model: "deepseek-flash",
-			maxUses: 5
-		}));
-		const result = await post(handler, { baseURL: "", maxUses: "" });
+			modes: { "anthropic-messages": { baseURL: "https://api.deepseek.com/anthropic/v1", model: "deepseek-flash", maxUses: 5 } }
+		});
+		const result = await post({ mode: "anthropic-messages", baseURL: "", maxUses: "" });
 		assert.equal(result.status, 200);
-		assert.deepEqual(storedConfig(), { mode: "anthropic-messages", model: "deepseek-flash" });
+		assert.deepEqual(storedBucket("anthropic-messages"), { model: "deepseek-flash" });
 	});
 
 	it("keeps keys the body does not mention", async () => {
-		const handler = configHandler();
-		writeFileSync(join(home, CONFIG_FILE), JSON.stringify({ mode: "anthropic-messages", maxUses: 5 }));
-		const result = await post(handler, { apiVersion: "2024-01-01" });
-		assert.equal(result.status, 200);
-		assert.deepEqual(storedConfig(), { mode: "anthropic-messages", maxUses: 5, apiVersion: "2024-01-01" });
+		writeDocument({ version: 2, mode: "anthropic-messages", modes: { "anthropic-messages": { maxUses: 5 } } });
+		assert.equal((await post({ mode: "anthropic-messages", apiVersion: "2024-01-01" })).status, 200);
+		assert.deepEqual(storedBucket("anthropic-messages"), { maxUses: 5, apiVersion: "2024-01-01" });
 	});
 
 	it("still rejects a present-but-invalid value, naming the key", async () => {
-		const handler = configHandler();
-		const result = await post(handler, { maxUses: 0 });
+		const result = await post({ mode: "anthropic-messages", maxUses: 0 });
 		assert.equal(result.status, 400);
 		assert.match(result.body.error, /^maxUses 必须是不小于 1 的整数$/);
-		assert.deepEqual(storedConfig(), {});
+		assert.deepEqual(storedDocument().modes, {});
+	});
+});
+
+describe("configuration endpoint buckets", () => {
+	it("keeps every mode's settings in its own bucket", async () => {
+		await post({ mode: "zhipu-web-search", apiKeyEnv: "ZAI_CODING_CN_API_KEY", model: "GLM-5.3-Flash", count: 20 });
+		await post({ mode: "anthropic-messages", apiKeyEnv: "DEEPSEEK_API_KEY", maxUses: 5 });
+		assert.deepEqual(storedBucket("zhipu-web-search"), { apiKeyEnv: "ZAI_CODING_CN_API_KEY", model: "GLM-5.3-Flash", count: 20 });
+		assert.deepEqual(storedBucket("anthropic-messages"), { apiKeyEnv: "DEEPSEEK_API_KEY", maxUses: 5 });
+		assert.equal(storedDocument().mode, "anthropic-messages");
 	});
 
-	it("reports the stored configuration on GET", async () => {
-		writeFileSync(join(home, CONFIG_FILE), JSON.stringify({ mode: "anthropic-messages", maxUses: 5 }));
-		const response = fakeResponse();
-		await configHandler()(fakeRequest("GET"), response);
-		assert.equal(response.status, 200);
-		const body = JSON.parse(response.payload);
-		assert.equal(body.mode, "anthropic-messages");
-		assert.equal(body.maxUses, 5);
-		assert.equal(body.keyConfigured, false); // no credentials service in this stub
+	it("drops a bucket once nothing is left in it", async () => {
+		writeDocument({ version: 2, mode: "responses", modes: { responses: { model: "deepseek-v4-flash-0731" } } });
+		await post({ mode: "responses", model: "" });
+		assert.deepEqual(storedDocument().modes, {});
+	});
+
+	it("projects a legacy flat file onto the mode it selected", async () => {
+		writeLegacy({ mode: "zhipu-web-search", apiKeyEnv: "ZAI_CODING_CN_API_KEY", count: 20, maxOutputTokens: 131072 });
+		const read = await get();
+		assert.equal(read.status, 200);
+		assert.equal(read.body.mode, "zhipu-web-search");
+		assert.equal(read.body.apiKeyEnv, "ZAI_CODING_CN_API_KEY");
+		assert.equal(read.body.count, 20);
+		assert.deepEqual(read.body.modes, { "zhipu-web-search": { apiKeyEnv: "ZAI_CODING_CN_API_KEY", count: 20, maxOutputTokens: 131072 } });
+
+		// The next save rewrites the file in the bucketed shape.
+		await post({ mode: "zhipu-web-search", maxUses: 5 });
+		assert.deepEqual(storedDocument(), {
+			version: 2,
+			mode: "zhipu-web-search",
+			modes: { "zhipu-web-search": { apiKeyEnv: "ZAI_CODING_CN_API_KEY", count: 20, maxOutputTokens: 131072, maxUses: 5 } }
+		});
+	});
+
+	it("serves the selected mode's bucket plus every bucket on GET", async () => {
+		writeDocument({
+			version: 2,
+			mode: "anthropic-messages",
+			modes: {
+				"anthropic-messages": { maxUses: 5, apiKeyEnv: "DEEPSEEK_API_KEY" },
+				"zhipu-web-search": { count: 20 }
+			}
+		});
+		const read = await get();
+		assert.equal(read.body.mode, "anthropic-messages");
+		assert.equal(read.body.maxUses, 5);
+		assert.equal(read.body.apiKeyEnv, "DEEPSEEK_API_KEY");
+		assert.equal(read.body.count, void 0);
+		assert.deepEqual(read.body.modes, {
+			"anthropic-messages": { maxUses: 5, apiKeyEnv: "DEEPSEEK_API_KEY" },
+			"zhipu-web-search": { count: 20 }
+		});
+		assert.equal(read.body.keyConfigured, false); // no credentials service in this stub
 	});
 });

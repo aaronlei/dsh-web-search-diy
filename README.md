@@ -117,6 +117,15 @@ The provider resolves options with precedence: **UI-managed file
 (`$DSH_HOME/dsh-web-search-diy.json`, written by the configuration page) >
 settings section / entry config > package defaults.**
 
+That file is **bucketed by protocol mode** (`{ "version": 2, "mode": …, "modes":
+{ <mode>: { … } } }`): every mode keeps its own endpoint, model, credential
+reference, output budget, and search options, so entering a mode restores that
+mode's settings — including after a page reload — instead of carrying the
+previous mode's values over or replacing them with canonical defaults. A mode
+with no bucket yet starts from that mode's official values. A file written by
+0.3.x (one flat object) is projected onto the mode it selected when read, and
+the next save rewrites it in the bucketed shape; reads never write.
+
 | Key | Default | Meaning |
 |---|---|---|
 | `mode` | `responses` | Protocol mode: `responses` / `anthropic-messages` / `zhipu-web-search` / `zhipu-chat-search` |
@@ -160,11 +169,13 @@ release). The page matches the official plugin configuration pages: edits
 stage locally and only **Save** writes, while **Discard** reverts to the
 stored values. Saving takes effect immediately — no restart. Page copy
 follows Settings → Language (zh / en). The API key input is write-only: leave
-it blank to keep the stored key. Switching the protocol also fills in the new
-mode's official model and credential reference: a stored `GLM-5.3-Flash`, or any
-reference belonging to the protocol family being left (`ZHIPU_API_KEY`,
-`ZAI_CODING_CN_API_KEY`), is replaced with the new mode's own, while a reference
-outside the known families — a gateway token, a custom name — is kept as typed.
+it blank to keep the stored key. Switching the protocol fills in the new mode's
+official endpoint, model, and credential reference. A value belonging to the
+family being left follows the switch and a value outside every known family (a
+gateway token, a custom name) is kept as typed; and because a family may have
+several acceptable values, the card remembers which one each family used — a
+Zhipu deployment on `ZAI_CODING_CN_API_KEY` gets that back when it returns,
+instead of the canonical `ZHIPU_API_KEY` it never configured.
 
 ## How it works
 
