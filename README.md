@@ -141,6 +141,11 @@ settings section / entry config > package defaults.**
 > when you switch to a zhipu mode, whose endpoint cannot serve it. Explicitly
 > customized values are always honored.
 
+Every key saved from the card follows one rule: a blank value clears the key so
+the mode's own default applies again, an omitted key is left untouched, and an
+invalid value is rejected with a message naming it. `apiKey` is the exception —
+blank keeps the stored secret.
+
 ### Configuration page
 
 The configuration page lives in the sidebar under **Plugins →

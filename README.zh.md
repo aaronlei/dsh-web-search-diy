@@ -123,6 +123,10 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 > 的 DeepSeek 模型名只在切到智谱模式（其端点无法承载该模型）时让位。显式自定义
 > 的值则始终尊重。
 
+从配置页保存时，所有键遵循同一条规则：空值会清除该键、让该模式自身的默认值重新
+生效；未提交的键维持原值；非法值会被拒绝并指名该键。`apiKey` 例外——留空表示
+保持已存密钥。
+
 ### 配置页
 
 配置页在侧栏 **插件 → dsh-web-search-diy → `web-search-diy` 行的「配置」**
