@@ -24,9 +24,11 @@
 （追加 `/messages`），默认密钥引用 `DEEPSEEK_API_KEY`（与对话模型、官方插件共用
 同一个凭据），默认模型 `deepseek-flash`（端点上滚动指向最新 Flash），并提供 `apiVersion`
 （`anthropic-version` 请求头，默认 `2023-06-01`）与 `maxUses`（`max_uses`，默认
-5）。输出预算默认为 4096（单次搜索是一整轮思考加原生工具回合），接口地址留空
-时会先回退到环境变量 `DEEPSEEK_SEARCH_BASE_URL`、再回退到内置默认值——与官方
-提供方一致。每次 Anthropic 调用还会以 `web/deepseek-search-llm-request` 事件
+5）。输出预算默认为 65536，即 DeepSeek 文档中思考模式的 `max_tokens` 默认值
+（关闭思考 8K、`reasoning_effort: max` 时 128K，上限 384K）；Anthropic 协议要求
+该字段存在，插件因此显式发送该默认值而非依赖服务端行为。它只是上限、不预扣费，
+设得过小会截断回合、砍掉工具调用轮次。接口地址留空时会先回退到环境变量
+`DEEPSEEK_SEARCH_BASE_URL`、再回退到内置默认值——与官方提供方一致。每次 Anthropic 调用还会以 `web/deepseek-search-llm-request` 事件
 记录到当前会话（端点、`anthropic-version`、请求体），与官方提供方行为相同。
 它说的是与官方 `deepseek-official` 提供方完全相同的线上格式——已有该密钥、或
 自建 Anthropic 兼容网关的部署无需重新配置。
@@ -104,7 +106,7 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 | `apiKeyEnv` | 按模式取默认（见上） | 每次搜索经 `ctx.credentials` 解析的凭据引用；留空时智谱模式会在 `ZHIPU_API_KEY` 之后再尝试 `ZAI_CODING_CN_API_KEY` |
 | `baseURL` | 按模式取默认（见上） | API 基址；`responses` 追加 `/responses`，`anthropic-messages` 追加 `/messages`，`zhipu-web-search` 追加 `/web_search`，`zhipu-chat-search` 追加 `/chat/completions` |
 | `model` | 按模式取默认（见上） | 端点承载的模型；`zhipu-web-search` 无模型回合，忽略此键 |
-| `maxOutputTokens` | 按模式：`anthropic-messages` 为 `4096`，其余为 `1024` | 单次搜索回合的输出上限（`responses` 的 `max_output_tokens`、`anthropic-messages` 与 `zhipu-chat-search` 的 `max_tokens`） |
+| `maxOutputTokens` | 按模式：`anthropic-messages` 为 `65536`，其余为 `4096` | 单次搜索回合的输出上限（`responses` 的 `max_output_tokens`、`anthropic-messages` 与 `zhipu-chat-search` 的 `max_tokens`） |
 | `apiVersion` | `2023-06-01` | 每次请求发送的 `anthropic-version` 请求头（仅 `anthropic-messages` 模式） |
 | `maxUses` | `5` | 单次请求内 `web_search` 服务端工具的最大调用次数，作为 `max_uses` 发送（仅 `anthropic-messages` 模式） |
 | `anthropicThinking` | `default` | `default` 不传参数；`disabled` 发送 `thinking: {type: "disabled"}`（仅 `anthropic-messages` 模式） |

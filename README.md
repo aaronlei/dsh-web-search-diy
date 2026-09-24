@@ -26,8 +26,12 @@ In `anthropic-messages` mode: default endpoint
 reference `DEEPSEEK_API_KEY` (the same credential the shipped provider and the
 conversation model use), default model `deepseek-flash` (the endpoint's rolling latest Flash), plus `apiVersion`
 (the `anthropic-version` header, default `2023-06-01`) and `maxUses`
-(`max_uses`, default 5). Its output budget defaults to 4096 — one search is a
-full thinking turn plus the native tool round — and a blank endpoint falls back
+(`max_uses`, default 5). Its output budget defaults to 65536, DeepSeek's
+documented `max_tokens` default for thinking mode (8K with thinking off, 128K at
+`reasoning_effort: max`, ceiling 384K). The Anthropic protocol wants the field
+present, so the plugin sends that default explicitly instead of relying on
+server-side behavior; it is a ceiling, not a reservation, and a tight value
+truncates the turn and cuts the tool round short. A blank endpoint falls back
 to `$DEEPSEEK_SEARCH_BASE_URL` before the built-in default, the same override
 the shipped provider honors. Each Anthropic turn is also recorded on the calling
 session as `web/deepseek-search-llm-request` (endpoint, `anthropic-version`,
@@ -120,7 +124,7 @@ settings section / entry config > package defaults.**
 | `apiKeyEnv` | per mode (see above) | Credential reference resolved per search via `ctx.credentials`; unset, the Zhipu modes also try `ZAI_CODING_CN_API_KEY` after `ZHIPU_API_KEY` |
 | `baseURL` | per mode (see above) | API base; `/responses`, `/messages`, `/web_search`, or `/chat/completions` is appended per mode |
 | `model` | per mode (see above) | Model served by the endpoint; `zhipu-web-search` has no model turn and ignores this key |
-| `maxOutputTokens` | per mode: `4096` in `anthropic-messages`, `1024` elsewhere | Output cap for one search turn (`max_output_tokens` in `responses`, `max_tokens` in `anthropic-messages` and `zhipu-chat-search`) |
+| `maxOutputTokens` | per mode: `65536` in `anthropic-messages`, `4096` elsewhere | Output cap for one search turn (`max_output_tokens` in `responses`, `max_tokens` in `anthropic-messages` and `zhipu-chat-search`) |
 | `apiVersion` | `2023-06-01` | `anthropic-version` header sent with each request (`anthropic-messages` mode only) |
 | `maxUses` | `5` | Maximum `web_search` server-tool uses per request, sent as `max_uses` (`anthropic-messages` mode only) |
 | `anthropicThinking` | `default` | `default` sends no parameter; `disabled` sends `thinking: {type: "disabled"}` (`anthropic-messages` mode only) |

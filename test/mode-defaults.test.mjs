@@ -49,7 +49,7 @@ function section(overrides = {}) {
 		baseURL: "",
 		mode: "responses",
 		model: "",
-		maxOutputTokens: 1024,
+		maxOutputTokens: 4096,
 		apiVersion: "2023-06-01",
 		maxUses: 5,
 		anthropicThinking: "default",
@@ -191,15 +191,21 @@ describe("apply() wiring", () => {
 });
 
 describe("output budget and environment fallback", () => {
-	it("defaults the Anthropic turn to 4096 while keeping 1024 elsewhere", () => {
-		assert.equal(resolveOptions(ctx, section({ mode: "anthropic-messages" })).maxOutputTokens, 4096);
-		assert.equal(resolveOptions(ctx, section({ mode: "responses" })).maxOutputTokens, 1024);
-		assert.equal(resolveOptions(ctx, section({ mode: "zhipu-web-search" })).maxOutputTokens, 1024);
+	it("defaults the Anthropic turn to the documented 64K thinking budget", () => {
+		assert.equal(resolveOptions(ctx, section({ mode: "anthropic-messages" })).maxOutputTokens, 65536);
+		assert.equal(resolveOptions(ctx, section({ mode: "responses" })).maxOutputTokens, 4096);
+		assert.equal(resolveOptions(ctx, section({ mode: "zhipu-web-search" })).maxOutputTokens, 4096);
 	});
 
-	it("keeps a custom budget in every mode, including 4096 set outside the Anthropic mode", () => {
+	it("lets a schema-frozen budget yield to the mode default", () => {
+		assert.equal(resolveOptions(ctx, section({ mode: "responses", maxOutputTokens: 1024 })).maxOutputTokens, 4096);
+		assert.equal(resolveOptions(ctx, section({ mode: "anthropic-messages", maxOutputTokens: 1024 })).maxOutputTokens, 65536);
+		assert.equal(resolveOptions(ctx, section({ mode: "anthropic-messages", maxOutputTokens: 4096 })).maxOutputTokens, 65536);
+	});
+
+	it("keeps a budget the user actually chose, in every mode", () => {
 		assert.equal(resolveOptions(ctx, section({ mode: "anthropic-messages", maxOutputTokens: 2048 })).maxOutputTokens, 2048);
-		assert.equal(resolveOptions(ctx, section({ mode: "zhipu-chat-search", maxOutputTokens: 4096 })).maxOutputTokens, 4096);
+		assert.equal(resolveOptions(ctx, section({ mode: "zhipu-chat-search", maxOutputTokens: 2048 })).maxOutputTokens, 2048);
 		assert.equal(resolveOptions(ctx, section({ mode: "responses", maxOutputTokens: 8192 })).maxOutputTokens, 8192);
 	});
 
