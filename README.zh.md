@@ -9,6 +9,7 @@
 | `mode` | 协议 | 后端 |
 |---|---|---|
 | `responses`（默认） | OpenAI 兼容 **Responses API** + `web_search` 工具 | 千问 Token Plan（默认示例）、OpenAI、任意兼容网关 |
+| `anthropic-messages` | **Anthropic 兼容 Messages API** + `web_search_20250305` 服务端工具 | DeepSeek 官方 Anthropic 端点（官方插件的等价替代）、任意 Anthropic 兼容网关 |
 | `zhipu-web-search` | 智谱 **基础检索（Web Search API）**（`POST /web_search`） | 智谱开放平台，纯结构化结果，无模型回合 |
 | `zhipu-chat-search` | 智谱 **问答增强（Web Search in Chat）**（`/chat/completions` + `web_search` 工具） | 智谱开放平台，检索 + 生成融合回答 |
 
@@ -19,8 +20,22 @@
 - 默认端点：`https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`
 - 默认密钥引用：`QWEN_TOKEN_PLAN_CN_API_KEY`
 
+`anthropic-messages` 模式：默认端点 `https://api.deepseek.com/anthropic/v1`
+（追加 `/messages`），默认密钥引用 `DEEPSEEK_API_KEY`（与对话模型、官方插件共用
+同一个凭据），默认模型 `deepseek-flash`（端点上滚动指向最新 Flash），并提供 `apiVersion`
+（`anthropic-version` 请求头，默认 `2023-06-01`）与 `maxUses`（`max_uses`，默认
+5）。输出预算默认为 4096（单次搜索是一整轮思考加原生工具回合），接口地址留空
+时会先回退到环境变量 `DEEPSEEK_SEARCH_BASE_URL`、再回退到内置默认值——与官方
+提供方一致。每次 Anthropic 调用还会以 `web/deepseek-search-llm-request` 事件
+记录到当前会话（端点、`anthropic-version`、请求体），与官方提供方行为相同。
+它说的是与官方 `deepseek-official` 提供方完全相同的线上格式——已有该密钥、或
+自建 Anthropic 兼容网关的部署无需重新配置。
+
 `zhipu-*` 模式：默认端点 `https://open.bigmodel.cn/api/paas/v4`，默认密钥
-引用 `ZHIPU_API_KEY`；`zhipu-chat-search` 默认模型 `glm-5.3-flash`（配思考
+引用 `ZHIPU_API_KEY`（若你的智谱凭据按所配置的 provider 命名——例如
+`zai-coding-cn` 对应的 `ZAI_CODING_CN_API_KEY`——把 `apiKeyEnv` 填成该名字，或
+直接留空，因为该模式的候选链本就会在 `ZHIPU_API_KEY` 之后尝试它；配置页在切换
+协议时会把它算作智谱家族的一员）；`zhipu-chat-search` 默认模型 `glm-5.3-flash`（配思考
 强度 `low`，实测约 3.5s——免费档 `glm-4.7-flash` 经常限流 429 不可用，不作为
 默认）。参考
 [智谱联网搜索文档](https://docs.bigmodel.cn/cn/guide/tools/web-search)。
@@ -37,6 +52,13 @@ DSH 自带的搜索提供方（`deepseek-official`）走的是 DeepSeek 自家 A
 > 时才会触发——Chat Completions 的搜索开关参数会被静默忽略。本插件走
 > Responses 协议，并解析 `web_search_call` 块里结构化的 `action.sources` 为
 > seam 标准的引用来源。
+
+> **为什么要 Anthropic Messages？** 官方 `deepseek-official` 提供方说的是
+> DeepSeek 的 Anthropic 兼容端点，但指不到别处。`anthropic-messages` 模式在本
+> 插件内复刻了该协议（含 `x-api-key` + `Bearer` 双认证头，以及用
+> `citations[].cited_text` 关联出的 snippet），已有 `DEEPSEEK_API_KEY` 的部署可
+> 直接沿用，同时端点、模型、工具预算与凭据都变得可配置，并继承本插件的
+> dispatcher 免疫响应解码。
 
 ## 安装
 
@@ -71,12 +93,14 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 
 | 键 | 默认值 | 含义 |
 |---|---|---|
-| `mode` | `responses` | 协议模式：`responses` / `zhipu-web-search` / `zhipu-chat-search` |
+| `mode` | `responses` | 协议模式：`responses` / `anthropic-messages` / `zhipu-web-search` / `zhipu-chat-search` |
 | `apiKey` | — | 字面 API key；设置时优先于 `apiKeyEnv` |
-| `apiKeyEnv` | 按模式取默认（见上） | 每次搜索经 `ctx.credentials` 解析的凭据引用 |
-| `baseURL` | 按模式取默认（见上） | API 基址；`responses` 追加 `/responses`，`zhipu-web-search` 追加 `/web_search`，`zhipu-chat-search` 追加 `/chat/completions` |
+| `apiKeyEnv` | 按模式取默认（见上） | 每次搜索经 `ctx.credentials` 解析的凭据引用；留空时智谱模式会在 `ZHIPU_API_KEY` 之后再尝试 `ZAI_CODING_CN_API_KEY` |
+| `baseURL` | 按模式取默认（见上） | API 基址；`responses` 追加 `/responses`，`anthropic-messages` 追加 `/messages`，`zhipu-web-search` 追加 `/web_search`，`zhipu-chat-search` 追加 `/chat/completions` |
 | `model` | 按模式取默认（见上） | 端点承载的模型；`zhipu-web-search` 无模型回合，忽略此键 |
-| `maxOutputTokens` | `1024` | 单次搜索回合的输出上限（`responses` 的 `max_output_tokens` / `zhipu-chat-search` 的 `max_tokens`） |
+| `maxOutputTokens` | 按模式：`anthropic-messages` 为 `4096`，其余为 `1024` | 单次搜索回合的输出上限（`responses` 的 `max_output_tokens`、`anthropic-messages` 与 `zhipu-chat-search` 的 `max_tokens`） |
+| `apiVersion` | `2023-06-01` | 每次请求发送的 `anthropic-version` 请求头（仅 `anthropic-messages` 模式） |
+| `maxUses` | `5` | 单次请求内 `web_search` 服务端工具的最大调用次数，作为 `max_uses` 发送（仅 `anthropic-messages` 模式） |
 | `searchEngine` | `search_std` | 智谱搜索引擎：`search_std` / `search_pro` / `search_pro_sogou` / `search_pro_quark`（仅智谱模式） |
 | `count` | `10` | 智谱返回条数（1-50）；请求自带 `maxResults` 上限时优先使用请求值（仅智谱模式） |
 | `searchRecencyFilter` | `noLimit` | 智谱时间范围：`noLimit` / `oneDay` / `oneWeek` / `oneMonth` / `oneYear`（仅智谱模式） |
@@ -87,9 +111,10 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 | `reasoningEffort` | `low` | 问答增强回合的思考强度 `reasoning_effort`：`low` / `high` / `max`；`low` 让 GLM-5.3-Flash 这类强制思考模型保持快速（仅 `zhipu-chat-search` 模式） |
 | `responsesReasoningEffort` | —（不传） | OpenAI 兼容回合的推理档位 `reasoning.effort`：`low` / `high`；不传则随大模型自身模式——网关不认识未知参数时请保持默认（仅 `responses` 模式） |
 
-> `apiKeyEnv` / `baseURL` / `model` 留空时按当前 `mode` 取默认；历史配置里由
-> schema 默认固化的 Qwen 地址/模型/引用在切换到智谱模式时自动让位给智谱
-> 默认值，显式自定义的值则始终尊重。
+> `apiKeyEnv` / `baseURL` / `model` 留空时按当前 `mode` 取默认。历史配置里由
+> schema 默认固化的 Qwen 地址/引用在切换模式时让位给新模式的默认值；同样固化
+> 的 DeepSeek 模型名只在切到智谱模式（其端点无法承载该模型）时让位。显式自定义
+> 的值则始终尊重。
 
 ### 配置页
 
@@ -98,6 +123,10 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 插件配置」页随该版本移除）。页面形态与官方插件配置页一致：编辑先暂存，点
 **保存** 才写入，**放弃修改** 恢复为已存值；保存即生效，无需重启。页面文案
 跟随 设置 → 语言（zh / en）。API 密钥输入框只写不读：留空表示保持已存密钥。
+切换协议时，模型与凭据引用会一并换成新协议的官方值：已存的 `GLM-5.3-Flash`，
+或任何属于“正在离开的那个服务商家族”的引用（`ZHIPU_API_KEY`、
+`ZAI_CODING_CN_API_KEY`）都会跟随替换；不属于任何已知家族的自定义引用名（网关
+令牌等）则原样保留。
 
 ## 工作原理
 
@@ -108,9 +137,10 @@ dsh plugin --profile web add link:./dsh-web-search-diy
       web_search 工具（与模型无关）
             │ ctx.web seam ──> diy-search 提供方
             ▼
-      ┌─ responses：        POST {baseURL}/responses   tools: [{ type: "web_search" }]
-      ├─ zhipu-web-search： POST {baseURL}/web_search  （纯检索，无模型回合）
-      └─ zhipu-chat-search：POST {baseURL}/chat/completions  tools: [{ type: "web_search", web_search: {...} }]
+      ┌─ responses：         POST {baseURL}/responses   tools: [{ type: "web_search" }]
+      ├─ anthropic-messages：POST {baseURL}/messages    tools: [{ type: "web_search_20250305", name: "web_search", max_uses }]
+      ├─ zhipu-web-search：  POST {baseURL}/web_search  （纯检索，无模型回合）
+      └─ zhipu-chat-search： POST {baseURL}/chat/completions  tools: [{ type: "web_search", web_search: {...} }]
             │
             ▼
       对话 LLM 基于搜索结果作答
@@ -120,6 +150,13 @@ dsh plugin --profile web add link:./dsh-web-search-diy
   结果返回去重后的 `sources[]`（url + `url_citation` 注解提供的可选标题）以及
   模型生成的 `content`。响应中若没有任何 `web_search_call` 块，则以
   `WEB_PROVIDER_ERROR` 响亮失败——绝不做从文本里扒链接的降级。
+- **anthropic-messages**：每次搜索是一次 Anthropic Messages 调用，带原生
+  `web_search_20250305` 服务端工具。`web_search_tool_result` 块成为去重的
+  `sources[]`（`url`、可选 `title`、`page_age` → `publishedAt`），`snippet` 由
+  响应的 `citations[].cited_text` 关联得到。提供方自己的文本不作为 `content`
+  返回（与官方提供方一致）。报告工具失败的 result 块（`max_uses_exceeded`、
+  `too_many_requests` 等）会带出该错误码而不是笼统的 unprocessable body；没有
+  任何 result 块的响应以 `WEB_PROVIDER_ERROR` 响亮失败。
 - **zhipu-web-search**：`search_result[]` 直接映射为去重的 `sources[]`
   （url + title），并拼接前若干条「标题 + 摘要」作为 `content` 速览。空结果
   是合法结果，返回空 `sources[]` 而非报错。
@@ -134,8 +171,9 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 ## 凭据
 
 在 Web 的 **Models** 页 / 凭据服务里保存密钥（引用名按模式取默认：
-`responses` 模式为 `QWEN_TOKEN_PLAN_CN_API_KEY`，智谱模式为
-`ZHIPU_API_KEY`），或在启动环境中导出。提供方每次搜索动态解析，不在自身
+`responses` 模式为 `QWEN_TOKEN_PLAN_CN_API_KEY`，`anthropic-messages` 模式为
+`DEEPSEEK_API_KEY`，智谱模式为 `ZHIPU_API_KEY`（其后依次为
+`ZAI_CODING_CN_API_KEY`）），或在启动环境中导出。提供方每次搜索动态解析，不在自身
 保留密钥。
 
 ## 许可证

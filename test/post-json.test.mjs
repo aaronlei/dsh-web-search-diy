@@ -36,6 +36,8 @@ function baseOptions(overrides = {}) {
 		baseURL: "https://gateway.example.test/api/paas/v4",
 		model: "glm-5.3-flash",
 		maxOutputTokens: 1024,
+		apiVersion: "2023-06-01",
+		maxUses: 5,
 		searchEngine: "search_std",
 		count: 10,
 		searchRecencyFilter: "noLimit",
@@ -189,6 +191,96 @@ describe("postJson response-body decoding", () => {
 		stubFetch(() => new Response(bomb));
 		await assert.rejects(provider().search({ query: "q" }), (error) => {
 			assert.match(String(error), /decoded body exceeds \d+ bytes/);
+			return true;
+		});
+	});
+});
+
+const anthropicPayload = {
+	content: [
+		{
+			type: "text",
+			text: "答案正文",
+			citations: [
+				{ type: "web_search_result_location", url: "https://d.example/a", cited_text: "摘录 A" },
+				{ type: "web_search_result_location", url: "https://d.example/a", cited_text: "重复引用应被忽略" },
+				{ type: "web_search_result_location", url: "https://d.example/b", cited_text: "" }
+			]
+		},
+		{
+			type: "web_search_tool_result",
+			content: [
+				{ type: "web_search_result", url: "https://d.example/a", title: "标题 A", page_age: "2026-01-02" },
+				{ type: "web_search_result", url: "https://d.example/a", title: "重复链接应被去重" },
+				{ type: "web_search_result", url: "https://d.example/b" },
+				{ type: "web_search_result", url: "" }
+			]
+		}
+	]
+};
+
+const anthropicToolError = {
+	content: [{
+		type: "web_search_tool_result",
+		content: { type: "web_search_tool_result_error", error_code: "max_uses_exceeded" }
+	}]
+};
+
+const anthropicWithoutToolResult = { content: [{ type: "text", text: "没有触发搜索" }] };
+
+describe("anthropic-messages mode", () => {
+	/** One provider configured for the DeepSeek Anthropic-compatible endpoint. */
+	function anthropicProvider(overrides = {}) {
+		return provider(baseOptions({
+			mode: "anthropic-messages",
+			baseURL: "https://api.deepseek.com/anthropic/v1",
+			model: "deepseek-v4-flash",
+			...overrides
+		}));
+	}
+
+	it("POSTs an Anthropic Messages turn with the native web_search tool", async () => {
+		const calls = stubFetch(() => jsonResponse(anthropicPayload));
+		await anthropicProvider().search({ query: "北京天气", maxResults: 5 });
+		assert.equal(calls[0].url, "https://api.deepseek.com/anthropic/v1/messages");
+		const headers = new Headers(calls[0].init.headers);
+		assert.equal(headers.get("x-api-key"), "test-key");
+		assert.equal(headers.get("anthropic-version"), "2023-06-01");
+		assert.equal(headers.get("authorization"), "Bearer test-key");
+		const body = JSON.parse(calls[0].init.body);
+		assert.equal(body.model, "deepseek-v4-flash");
+		assert.equal(body.max_tokens, 1024);
+		assert.deepEqual(body.tools, [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }]);
+		assert.match(body.messages[0].content[0].text, /北京天气/);
+	});
+
+	it("maps result blocks, citation snippets, page_age, and dedupes by url", async () => {
+		stubFetch(() => jsonResponse(anthropicPayload));
+		const result = await anthropicProvider().search({ query: "q" });
+		assert.deepEqual(result.sources, [
+			{ url: "https://d.example/a", title: "标题 A", snippet: "摘录 A", publishedAt: "2026-01-02" },
+			{ url: "https://d.example/b" }
+		]);
+		assert.equal(result.truncated, false);
+		assert.equal(result.content, void 0);
+	});
+
+	it("surfaces the tool error code instead of an unprocessable body", async () => {
+		stubFetch(() => jsonResponse(anthropicToolError));
+		await assert.rejects(anthropicProvider().search({ query: "q" }), (error) => {
+			assert.ok(error instanceof WebError);
+			assert.equal(error.code, "WEB_PROVIDER_ERROR");
+			assert.match(error.message, /max_uses_exceeded/);
+			return true;
+		});
+	});
+
+	it("fails loudly when the response carries no web_search_tool_result block", async () => {
+		stubFetch(() => jsonResponse(anthropicWithoutToolResult));
+		await assert.rejects(anthropicProvider().search({ query: "q" }), (error) => {
+			assert.ok(error instanceof WebError);
+			assert.equal(error.code, "WEB_PROVIDER_ERROR");
+			assert.match(error.message, /no web_search_tool_result block/);
 			return true;
 		});
 	});

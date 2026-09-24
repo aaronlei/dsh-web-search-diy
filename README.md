@@ -9,6 +9,7 @@ the built-in `web_search` tool with multiple search backends, returning
 | `mode` | Protocol | Backend |
 |---|---|---|
 | `responses` (default) | OpenAI-compatible **Responses API** + `web_search` tool | Qwen Token Plan (default example), OpenAI, any compatible gateway |
+| `anthropic-messages` | **Anthropic-compatible Messages API** + `web_search_20250305` server tool | DeepSeek's official Anthropic endpoint (drop-in for the shipped provider), any Anthropic-compatible gateway |
 | `zhipu-web-search` | Zhipu **Web Search API** (basic retrieval, `POST /web_search`) | Zhipu open platform; raw structured results, no model turn |
 | `zhipu-chat-search` | Zhipu **Web Search in Chat** (answer augmentation, `/chat/completions` + `web_search` tool) | Zhipu open platform; retrieval fused into a grounded answer |
 
@@ -20,8 +21,27 @@ its gateway.
 - Default endpoint: `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`
 - Default key reference: `QWEN_TOKEN_PLAN_CN_API_KEY`
 
+In `anthropic-messages` mode: default endpoint
+`https://api.deepseek.com/anthropic/v1` (with `/messages` appended), default key
+reference `DEEPSEEK_API_KEY` (the same credential the shipped provider and the
+conversation model use), default model `deepseek-flash` (the endpoint's rolling latest Flash), plus `apiVersion`
+(the `anthropic-version` header, default `2023-06-01`) and `maxUses`
+(`max_uses`, default 5). Its output budget defaults to 4096 — one search is a
+full thinking turn plus the native tool round — and a blank endpoint falls back
+to `$DEEPSEEK_SEARCH_BASE_URL` before the built-in default, the same override
+the shipped provider honors. Each Anthropic turn is also recorded on the calling
+session as `web/deepseek-search-llm-request` (endpoint, `anthropic-version`,
+body), exactly as the shipped provider records it. It speaks the same wire
+format as `deepseek-official`, so a deployment already holding that key or
+fronting its own Anthropic-compatible gateway needs no reconfiguration.
+
 In `zhipu-*` modes: default endpoint `https://open.bigmodel.cn/api/paas/v4`,
-default key reference `ZHIPU_API_KEY`, and `zhipu-chat-search` defaults its
+default key reference `ZHIPU_API_KEY` (a deployment that names its Zhipu
+credential after the provider it configured — say `ZAI_CODING_CN_API_KEY` from a
+`zai-coding-cn` model provider — may set `apiKeyEnv` to that name, or leave it
+blank because the mode's chain already tries that reference after
+`ZHIPU_API_KEY`; the configuration page counts it as part of the Zhipu family
+when protocols are switched), and `zhipu-chat-search` defaults its
 model to `glm-5.3-flash` (with thinking effort `low`, ~3.5s live-verified —
 the free-tier `glm-4.7-flash` is frequently rate-limited with HTTP 429 and is
 not the default). See the
@@ -42,6 +62,14 @@ Search and conversation models stay fully decoupled — use it with any chat LLM
 > search flags are silently ignored there. This plugin speaks the Responses
 > protocol and parses the structured `web_search_call` blocks' `action.sources`
 > into seam-standard citation sources.
+
+> **Why Anthropic Messages?** The shipped `deepseek-official` provider speaks
+> DeepSeek's Anthropic-compatible endpoint but cannot be pointed elsewhere. The
+> `anthropic-messages` mode reproduces that protocol inside this plugin —
+> including the dual `x-api-key` + `Bearer` headers and the snippets joined from
+> `citations[].cited_text` — so an existing `DEEPSEEK_API_KEY` deployment keeps
+> working while the endpoint, model, tool budget, and credential become
+> configurable, and it inherits this plugin's dispatcher-proof response decoding.
 
 ## Install
 
@@ -79,12 +107,14 @@ settings section / entry config > package defaults.**
 
 | Key | Default | Meaning |
 |---|---|---|
-| `mode` | `responses` | Protocol mode: `responses` / `zhipu-web-search` / `zhipu-chat-search` |
+| `mode` | `responses` | Protocol mode: `responses` / `anthropic-messages` / `zhipu-web-search` / `zhipu-chat-search` |
 | `apiKey` | — | Literal API key; overrides `apiKeyEnv` when set |
-| `apiKeyEnv` | per mode (see above) | Credential reference resolved per search via `ctx.credentials` |
-| `baseURL` | per mode (see above) | API base; `/responses`, `/web_search`, or `/chat/completions` is appended per mode |
+| `apiKeyEnv` | per mode (see above) | Credential reference resolved per search via `ctx.credentials`; unset, the Zhipu modes also try `ZAI_CODING_CN_API_KEY` after `ZHIPU_API_KEY` |
+| `baseURL` | per mode (see above) | API base; `/responses`, `/messages`, `/web_search`, or `/chat/completions` is appended per mode |
 | `model` | per mode (see above) | Model served by the endpoint; `zhipu-web-search` has no model turn and ignores this key |
-| `maxOutputTokens` | `1024` | Output cap for one search turn (`max_output_tokens` in `responses`, `max_tokens` in `zhipu-chat-search`) |
+| `maxOutputTokens` | per mode: `4096` in `anthropic-messages`, `1024` elsewhere | Output cap for one search turn (`max_output_tokens` in `responses`, `max_tokens` in `anthropic-messages` and `zhipu-chat-search`) |
+| `apiVersion` | `2023-06-01` | `anthropic-version` header sent with each request (`anthropic-messages` mode only) |
+| `maxUses` | `5` | Maximum `web_search` server-tool uses per request, sent as `max_uses` (`anthropic-messages` mode only) |
 | `searchEngine` | `search_std` | Zhipu engine: `search_std` / `search_pro` / `search_pro_sogou` / `search_pro_quark` (Zhipu modes only) |
 | `count` | `10` | Zhipu result count (1-50); a request-supplied `maxResults` cap takes precedence (Zhipu modes only) |
 | `searchRecencyFilter` | `noLimit` | Zhipu recency window: `noLimit` / `oneDay` / `oneWeek` / `oneMonth` / `oneYear` (Zhipu modes only) |
@@ -96,9 +126,11 @@ settings section / entry config > package defaults.**
 | `responsesReasoningEffort` | — (unset) | OpenAI-standard `reasoning.effort` for the responses turn: `low` / `high`; unset sends no `reasoning` parameter and follows the model's own mode — keep it unset if the gateway rejects unknown parameters (`responses` mode only) |
 
 > `apiKeyEnv` / `baseURL` / `model` left empty inherit the current mode's
-> default. Values fossilized into a section by the old schema defaults (the
-> Qwen endpoint/model/reference) yield to the zhipu defaults when you switch
-> to a zhipu mode; explicitly customized values are always honored.
+> default. Endpoint and key-reference values fossilized into a section by the
+> old schema defaults (the Qwen ones) yield to the current mode's default when
+> you switch modes. A DeepSeek model name fossilized the same way yields only
+> when you switch to a zhipu mode, whose endpoint cannot serve it. Explicitly
+> customized values are always honored.
 
 ### Configuration page
 
@@ -110,7 +142,11 @@ release). The page matches the official plugin configuration pages: edits
 stage locally and only **Save** writes, while **Discard** reverts to the
 stored values. Saving takes effect immediately — no restart. Page copy
 follows Settings → Language (zh / en). The API key input is write-only: leave
-it blank to keep the stored key.
+it blank to keep the stored key. Switching the protocol also fills in the new
+mode's official model and credential reference: a stored `GLM-5.3-Flash`, or any
+reference belonging to the protocol family being left (`ZHIPU_API_KEY`,
+`ZAI_CODING_CN_API_KEY`), is replaced with the new mode's own, while a reference
+outside the known families — a gateway token, a custom name — is kept as typed.
 
 ## How it works
 
@@ -121,9 +157,10 @@ you ──> chat LLM
      web_search tool (model-agnostic)
             │ ctx.web seam ──> diy-search provider
             ▼
-     ├─ responses:        POST {baseURL}/responses   tools: [{ type: "web_search" }]
-     ├─ zhipu-web-search: POST {baseURL}/web_search  (raw retrieval, no model turn)
-     └─ zhipu-chat-search:POST {baseURL}/chat/completions  tools: [{ type: "web_search", web_search: {...} }]
+     ├─ responses:         POST {baseURL}/responses   tools: [{ type: "web_search" }]
+     ├─ anthropic-messages:POST {baseURL}/messages    tools: [{ type: "web_search_20250305", name: "web_search", max_uses }]
+     ├─ zhipu-web-search:  POST {baseURL}/web_search  (raw retrieval, no model turn)
+     └─ zhipu-chat-search: POST {baseURL}/chat/completions  tools: [{ type: "web_search", web_search: {...} }]
             │
             ▼
      chat LLM answers grounded in the results
@@ -134,6 +171,15 @@ you ──> chat LLM
   `url_citation` annotations) plus the model's grounded `content`. A response
   without any `web_search_call` block fails loudly with `WEB_PROVIDER_ERROR`
   — never a prose-scraping fallback.
+- **anthropic-messages**: each search is one Anthropic Messages turn with the
+  native `web_search_20250305` server tool. `web_search_tool_result` blocks
+  become deduped `sources[]` (`url`, optional `title`, `page_age` →
+  `publishedAt`), and `snippet` is joined from the response's
+  `citations[].cited_text`. The provider's own prose is deliberately not
+  returned as `content`, matching the shipped provider. A result block that
+  reports a tool failure (`max_uses_exceeded`, `too_many_requests`, …) surfaces
+  that error code instead of an unprocessable body, and a response with no
+  result block fails loudly with `WEB_PROVIDER_ERROR`.
 - **zhipu-web-search**: `search_result[]` maps directly into deduped
   `sources[]` (url + title), and a digest of the top title-plus-snippet
   entries becomes the `content` overview. An empty result set is a valid
@@ -153,7 +199,8 @@ you ──> chat LLM
 
 Store the key through the web **Models** page / credentials service (the
 default reference is per mode: `QWEN_TOKEN_PLAN_CN_API_KEY` in `responses`
-mode, `ZHIPU_API_KEY` in the zhipu modes), or export it in the launching
+mode, `DEEPSEEK_API_KEY` in `anthropic-messages` mode, and `ZHIPU_API_KEY` (then
+`ZAI_CODING_CN_API_KEY`) in the zhipu modes), or export it in the launching
 environment. The provider resolves it per search; no key is retained on the
 provider.
 
