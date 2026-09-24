@@ -67,14 +67,14 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 服务端半侧是直接维护的源码 [lib/index.js](lib/index.js)；浏览器半侧的权威源是 [src/client/index.tsx](src/client/index.tsx)，宿主消费的是它**构建后**的 bundle `lib/client.js`（官方客户端插件同样用 tsdown 构建），因此 UI 改动一律走构建：
 
 ```bash
-pnpm install        # 首次：安装 tsdown、TypeScript 与 React 类型
-pnpm run bundle     # 一次性构建，或 pnpm run watch（保存即重建）
-npm run typecheck   # 类型检查在这一步（tsdown 只转译）
-npm run test:client # 先重建再校验产物的契约
-npm test            # 服务端测试
+pnpm install         # 首次：安装 tsdown、TypeScript 与 React 类型
+pnpm run bundle      # 一次性构建，或 pnpm run watch（保存即重建）
+pnpm run typecheck   # 类型检查在这一步（tsdown 只转译）
+pnpm run test:client # 先重建再校验产物的契约
+pnpm run test        # 服务端测试
 ```
 
-`lib/client.js` 入库，因为本地链接安装与 npm 发布包交付的都是构建产物；source map 属本地构建副产品，不入库。`npm run test:client` 会先重建再校验，因此忘记构建不会让旧产物蒙混过关。[scripts/verify-client.mjs](scripts/verify-client.mjs) 把构建产物装进保真的 React 替身（真实的 `useState`/`useEffect`/`useRef` 语义，`ctx.effect` 立即执行），因此当产物与卡片的注册路径、按模式可见的字段、分桶切换或保存控件状态发生偏离时，它会直接失败。
+`lib/client.js` 入库，因为本地链接安装与 npm 发布包交付的都是构建产物；source map 属本地构建副产品，不入库。`pnpm run test:client` 会先重建再校验，因此忘记构建不会让旧产物蒙混过关。[scripts/verify-client.mjs](scripts/verify-client.mjs) 把构建产物装进保真的 React 替身（真实的 `useState`/`useEffect`/`useRef` 语义，`ctx.effect` 立即执行），因此当产物与卡片的注册路径、按模式可见的字段、分桶切换或保存控件状态发生偏离时，它会直接失败。
 
 ## 配置
 

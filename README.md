@@ -67,14 +67,14 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 The server half is plain source at [lib/index.js](lib/index.js). The browser half's authoritative source is [src/client/index.tsx](src/client/index.tsx), and the host consumes its **built** bundle at `lib/client.js` (the official client plugins build the same way, with tsdown), so UI changes always go through the build:
 
 ```bash
-pnpm install        # once: tsdown, TypeScript, React types
-pnpm run bundle     # one-shot build, or: pnpm run watch (rebuild on save)
-npm run typecheck   # types are checked here — tsdown only transpiles
-npm run test:client # rebuilds first, then asserts the artifact's contracts
-npm test            # server-side suites
+pnpm install         # once: tsdown, TypeScript, React types
+pnpm run bundle      # one-shot build, or: pnpm run watch (rebuild on save)
+pnpm run typecheck   # types are checked here — tsdown only transpiles
+pnpm run test:client # rebuilds first, then asserts the artifact's contracts
+pnpm run test        # server-side suites
 ```
 
-`lib/client.js` is committed because both a linked local install and the published package ship the built artifact; the source map is a local build product and stays out of git. `npm run test:client` rebuilds before it asserts, so a forgotten build can never validate a stale artifact. [scripts/verify-client.mjs](scripts/verify-client.mjs) loads the built bundle into a hook-faithful React stand-in — real `useState`/`useEffect`/`useRef` semantics and an immediately-running `ctx.effect` — so it fails when the artifact and the card's registration, mode-scoped fields, bucket switching, or save-control states drift apart.
+`lib/client.js` is committed because both a linked local install and the published package ship the built artifact; the source map is a local build product and stays out of git. `pnpm run test:client` rebuilds before it asserts, so a forgotten build can never validate a stale artifact. [scripts/verify-client.mjs](scripts/verify-client.mjs) loads the built bundle into a hook-faithful React stand-in — real `useState`/`useEffect`/`useRef` semantics and an immediately-running `ctx.effect` — so it fails when the artifact and the card's registration, mode-scoped fields, bucket switching, or save-control states drift apart.
 
 ## Configuration
 

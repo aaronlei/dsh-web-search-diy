@@ -10,7 +10,7 @@
  * bundled.
  *
  * Run `pnpm run bundle` (one shot) or `pnpm run watch` (rebuild on change);
- * `npm run test:client` then exercises the built artifact's contracts.
+ * `pnpm run test:client` then exercises the built artifact's contracts.
  */
 import { defineConfig } from "tsdown";
 

@@ -14,7 +14,7 @@
  * stages edits through `useState` setters and registers effects through
  * `useEffect`/`ctx.effect`, so a no-op stub silently checks nothing.
  *
- * Run: npm run test:client
+ * Run: pnpm run test:client (it rebuilds lib/client.js first)
  */
 import { readFileSync } from "node:fs";
 
