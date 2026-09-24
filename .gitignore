@@ -3,4 +3,3 @@ node_modules/
 lib/*.map
 /.idea/
 pnpm-workspace.yaml
-pnpm-lock.yaml
