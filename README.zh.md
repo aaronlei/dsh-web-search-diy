@@ -19,8 +19,8 @@
 |---|---|---|---|---|
 | `responses` | `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1` | `deepseek-v4-flash-0731` | `QWEN_TOKEN_PLAN_CN_API_KEY` | `4096` |
 | `anthropic-messages` | `https://api.deepseek.com/anthropic/v1` | `deepseek-flash` | `DEEPSEEK_API_KEY` | `65536` |
-| `zhipu-web-search` | `https://open.bigmodel.cn/api/paas/v4` | —（无模型回合） | `ZHIPU_API_KEY`，其后 `ZAI_CODING_CN_API_KEY` | `4096`（不生效） |
-| `zhipu-chat-search` | `https://open.bigmodel.cn/api/paas/v4` | `glm-5.3-flash` | `ZHIPU_API_KEY`，其后 `ZAI_CODING_CN_API_KEY` | `4096` |
+| `zhipu-web-search` | `https://open.bigmodel.cn/api/paas/v4` | —（无模型回合） | `ZAI_CODING_CN_API_KEY`，其后历史名 `ZHIPU_API_KEY` | `4096`（不生效） |
+| `zhipu-chat-search` | `https://open.bigmodel.cn/api/paas/v4` | `glm-5.3-flash` | `ZAI_CODING_CN_API_KEY`，其后历史名 `ZHIPU_API_KEY` | `4096` |
 
 **`responses`** 是本插件的历史行为：端点、模型、密钥引用随手可换，唯一要求是模型在网关上真的支持 `web_search` 工具。额外的一个旋钮是 `responsesReasoningEffort`，透传 OpenAI 标准的 `reasoning.effort`（`low` / `high`）；默认不传——网关不实现该参数时可能直接拒绝整个请求，那种网关上请保持默认。
 
@@ -28,7 +28,7 @@
 
 该端点无法按档位或预算调节思考：实测 `reasoning_effort`（low/high）与 `thinking.budget_tokens` 都不改变思考长度（1024 的预算甚至比不传预算思考更多），只有 `thinking: {type: "disabled"}` 能整段去掉推理过程（同一道长推理题：38s → 8s，输出 9444 → 2204 tokens）。因此 `anthropicThinking` 只暴露这一个开关；普通搜索查询的时延差别不大，省下的是思考 token。
 
-**`zhipu-*`** 两个模式共用智谱开放平台基址 `https://open.bigmodel.cn/api/paas/v4` 与凭据链 `ZHIPU_API_KEY` → `ZAI_CODING_CN_API_KEY`。后一个名字正是这条链存在的理由：若你的智谱凭据按所配置的 provider 命名（例如 `zai-coding-cn` 对应的 `ZAI_CODING_CN_API_KEY`），`apiKeyEnv` 留空也能被找到。`zhipu-chat-search` 默认模型 `glm-5.3-flash`、思考强度 `low`（实测约 3.5s）——免费档 `glm-4.7-flash` 经常限流 429，不作为默认。参考 [智谱联网搜索文档](https://docs.bigmodel.cn/cn/guide/tools/web-search)。
+**`zhipu-*`** 两个模式共用智谱开放平台基址 `https://open.bigmodel.cn/api/paas/v4` 与凭据链 `ZAI_CODING_CN_API_KEY` → 历史名 `ZHIPU_API_KEY`。首选名正是 DeepSeek 侧凭据平面对智谱密钥使用的名字（`zai-coding-cn` provider 行读的就是 `ZAI_CODING_CN_API_KEY`），因此按该 provider 命名凭据的部署把 `apiKeyEnv` 留空也能被找到；`ZHIPU_API_KEY` 是本插件此前的默认名，仅为老部署迁移期间兼容保留。`zhipu-chat-search` 默认模型 `glm-5.3-flash`、思考强度 `low`（实测约 3.5s）——免费档 `glm-4.7-flash` 经常限流 429，不作为默认。参考 [智谱联网搜索文档](https://docs.bigmodel.cn/cn/guide/tools/web-search)。
 
 ## 为什么
 
@@ -155,7 +155,7 @@ pnpm run test        # 服务端测试
 
 ## 凭据
 
-在 Web 的 **Models** 页 / 凭据服务里保存密钥（`$DSH_HOME/.credentials.yaml`），或在启动环境中导出。引用名按模式取默认：`responses` 为 `QWEN_TOKEN_PLAN_CN_API_KEY`，`anthropic-messages` 为 `DEEPSEEK_API_KEY`，智谱模式为 `ZHIPU_API_KEY`（其后 `ZAI_CODING_CN_API_KEY`）。提供方每次搜索动态解析，不在自身保留密钥，也不把密钥写入配置文件。
+在 Web 的 **Models** 页 / 凭据服务里保存密钥（`$DSH_HOME/.credentials.yaml`），或在启动环境中导出。引用名按模式取默认：`responses` 为 `QWEN_TOKEN_PLAN_CN_API_KEY`，`anthropic-messages` 为 `DEEPSEEK_API_KEY`，智谱模式为 `ZAI_CODING_CN_API_KEY`（其后历史名 `ZHIPU_API_KEY`）。提供方每次搜索动态解析，不在自身保留密钥，也不把密钥写入配置文件。
 
 ## 许可证
 

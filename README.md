@@ -19,8 +19,8 @@ Defaults per mode:
 |---|---|---|---|---|
 | `responses` | `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1` | `deepseek-v4-flash-0731` | `QWEN_TOKEN_PLAN_CN_API_KEY` | `4096` |
 | `anthropic-messages` | `https://api.deepseek.com/anthropic/v1` | `deepseek-flash` | `DEEPSEEK_API_KEY` | `65536` |
-| `zhipu-web-search` | `https://open.bigmodel.cn/api/paas/v4` | — (no model turn) | `ZHIPU_API_KEY`, then `ZAI_CODING_CN_API_KEY` | `4096` (unused) |
-| `zhipu-chat-search` | `https://open.bigmodel.cn/api/paas/v4` | `glm-5.3-flash` | `ZHIPU_API_KEY`, then `ZAI_CODING_CN_API_KEY` | `4096` |
+| `zhipu-web-search` | `https://open.bigmodel.cn/api/paas/v4` | — (no model turn) | `ZAI_CODING_CN_API_KEY`, then the historical `ZHIPU_API_KEY` | `4096` (unused) |
+| `zhipu-chat-search` | `https://open.bigmodel.cn/api/paas/v4` | `glm-5.3-flash` | `ZAI_CODING_CN_API_KEY`, then the historical `ZHIPU_API_KEY` | `4096` |
 
 **`responses`** is the historical behavior of this plugin: endpoint, model, and credential reference are yours to swap, and the only requirement is a model that actually exposes the `web_search` tool on its gateway. The one extra knob is `responsesReasoningEffort`, which passes the OpenAI-standard `reasoning.effort` (`low` / `high`); it is unset by default, because a gateway that does not implement the parameter may reject the whole request — leave it unset there.
 
@@ -28,7 +28,7 @@ Defaults per mode:
 
 Thinking is not tunable by effort or budget on that endpoint: measured against it, `reasoning_effort` (low/high) and `thinking.budget_tokens` left the thinking length unchanged (a 1024-token budget even produced more thinking than no budget), while `thinking: {type: "disabled"}` removed the reasoning pass entirely (same long-reasoning prompt: 38s → 8s, 9444 → 2204 output tokens). `anthropicThinking` therefore exposes that one switch; on ordinary search queries the latency difference is small, the saving is in thinking tokens.
 
-**`zhipu-*`** modes share the Zhipu open platform base `https://open.bigmodel.cn/api/paas/v4` and the credential chain `ZHIPU_API_KEY` then `ZAI_CODING_CN_API_KEY`. That second name is why the chain exists: a deployment that names its Zhipu credential after the provider it configured (say `ZAI_CODING_CN_API_KEY` from a `zai-coding-cn` model provider) may leave `apiKeyEnv` blank and still be found. `zhipu-chat-search` defaults its model to `glm-5.3-flash` with thinking effort `low` (~3.5s live-verified) — the free-tier `glm-4.7-flash` is frequently rate-limited with HTTP 429 and is not the default. See the [Zhipu web search docs](https://docs.bigmodel.cn/cn/guide/tools/web-search).
+**`zhipu-*`** modes share the Zhipu open platform base `https://open.bigmodel.cn/api/paas/v4` and the credential chain `ZAI_CODING_CN_API_KEY`, then the historical `ZHIPU_API_KEY`. It leads with the name DeepSeek's own credential plane uses for a Zhipu key (a `zai-coding-cn` model provider row reads `ZAI_CODING_CN_API_KEY`), so a deployment that names its credential after that provider may leave `apiKeyEnv` blank and still be found; `ZHIPU_API_KEY` is the name this plugin used to default to, kept only while older deployments migrate. `zhipu-chat-search` defaults its model to `glm-5.3-flash` with thinking effort `low` (~3.5s live-verified) — the free-tier `glm-4.7-flash` is frequently rate-limited with HTTP 429 and is not the default. See the [Zhipu web search docs](https://docs.bigmodel.cn/cn/guide/tools/web-search).
 
 ## Why
 
@@ -155,7 +155,7 @@ you ──> chat LLM
 
 ## Credential
 
-Store the key through the web **Models** page / credentials service (`$DSH_HOME/.credentials.yaml`), or export it in the launching environment. The default reference is per mode: `QWEN_TOKEN_PLAN_CN_API_KEY` in `responses`, `DEEPSEEK_API_KEY` in `anthropic-messages`, and `ZHIPU_API_KEY` (then `ZAI_CODING_CN_API_KEY`) in the Zhipu modes. The provider resolves it per search; no key is retained on the provider, and no key is written to the configuration file.
+Store the key through the web **Models** page / credentials service (`$DSH_HOME/.credentials.yaml`), or export it in the launching environment. The default reference is per mode: `QWEN_TOKEN_PLAN_CN_API_KEY` in `responses`, `DEEPSEEK_API_KEY` in `anthropic-messages`, and `ZAI_CODING_CN_API_KEY` (then the historical `ZHIPU_API_KEY`) in the Zhipu modes. The provider resolves it per search; no key is retained on the provider, and no key is written to the configuration file.
 
 ## License
 

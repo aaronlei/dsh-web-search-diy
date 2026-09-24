@@ -263,17 +263,17 @@ describe("credential reference chain", () => {
 		return { get: (name) => name === "credentials" ? credentialsWith(values) : void 0 };
 	}
 
-	it("carries the deployment's Zhipu reference behind the canonical one", () => {
+	it("leads with the DeepSeek-side Zhipu reference and keeps the historical name behind it", () => {
 		const options = resolveOptions(ctx, section({ mode: "zhipu-chat-search" }));
-		assert.equal(String(options.apiKeyEnv), "ZHIPU_API_KEY");
-		assert.deepEqual(options.apiKeyEnvFallbacks.map(String), ["ZAI_CODING_CN_API_KEY"]);
+		assert.equal(String(options.apiKeyEnv), "ZAI_CODING_CN_API_KEY");
+		assert.deepEqual(options.apiKeyEnvFallbacks.map(String), ["ZHIPU_API_KEY"]);
 	});
 
-	it("resolves the canonical reference first, then the fallback", async () => {
-		const canonical = resolveOptions(ctxWith({ ZHIPU_API_KEY: "zhipu-key" }), section({ mode: "zhipu-web-search" }));
-		assert.equal(await canonical.resolveApiKey(), "zhipu-key");
-		const fallback = resolveOptions(ctxWith({ ZAI_CODING_CN_API_KEY: "zai-key" }), section({ mode: "zhipu-web-search" }));
-		assert.equal(await fallback.resolveApiKey(), "zai-key");
+	it("prefers the leading reference and still resolves the historical one", async () => {
+		const both = resolveOptions(ctxWith({ ZAI_CODING_CN_API_KEY: "zai-key", ZHIPU_API_KEY: "zhipu-key" }), section({ mode: "zhipu-web-search" }));
+		assert.equal(await both.resolveApiKey(), "zai-key");
+		const historicalOnly = resolveOptions(ctxWith({ ZHIPU_API_KEY: "zhipu-key" }), section({ mode: "zhipu-web-search" }));
+		assert.equal(await historicalOnly.resolveApiKey(), "zhipu-key");
 	});
 
 	it("returns nothing when neither reference resolves", async () => {
@@ -282,14 +282,14 @@ describe("credential reference chain", () => {
 	});
 
 	it("walks the chain through the launching environment when no credentials service is mounted", async () => {
-		const previous = process.env.ZAI_CODING_CN_API_KEY;
-		process.env.ZAI_CODING_CN_API_KEY = "ambient-zai-key";
+		const previous = process.env.ZHIPU_API_KEY;
+		process.env.ZHIPU_API_KEY = "ambient-zhipu-key";
 		try {
 			const options = resolveOptions({ get: () => void 0 }, section({ mode: "zhipu-chat-search" }));
-			assert.equal(await options.resolveApiKey(), "ambient-zai-key");
+			assert.equal(await options.resolveApiKey(), "ambient-zhipu-key");
 		} finally {
-			if (previous === void 0) delete process.env.ZAI_CODING_CN_API_KEY;
-			else process.env.ZAI_CODING_CN_API_KEY = previous;
+			if (previous === void 0) delete process.env.ZHIPU_API_KEY;
+			else process.env.ZHIPU_API_KEY = previous;
 		}
 	});
 
@@ -305,7 +305,7 @@ describe("credential reference chain", () => {
 		const provider = new OpenAiSearchProvider(() => options);
 		await assert.rejects(provider.search({ query: "q" }), (error) => {
 			assert.equal(error.code, "WEB_PROVIDER_CREDENTIAL_MISSING");
-			assert.match(error.message, /"ZHIPU_API_KEY" or "ZAI_CODING_CN_API_KEY"/);
+			assert.match(error.message, /"ZAI_CODING_CN_API_KEY" or "ZHIPU_API_KEY"/);
 			return true;
 		});
 	});

@@ -8,7 +8,7 @@
  *      endpoint, model, credential reference, and options, a mode with no bucket
  *      starts from that mode's official values, and a switch never marks the
  *      form dirty (the reported regression: switching back used to replace a
- *      stored `ZAI_CODING_CN_API_KEY` with the canonical `ZHIPU_API_KEY`).
+ *      stored credential reference with a canonical name it never configured).
  *
  * The React stand-in implements real state and effect semantics: the bundle
  * stages edits through `useState` setters and registers effects through
@@ -272,7 +272,7 @@ const zhipuOnly = await open({
 });
 const atZhipuChat = enterMode(zhipuOnly.fields, "zhipu-chat-search");
 console.log(`zhipu-web-search(ZAI) → zhipu-chat-search (no bucket): keyRef=${valueOf(atZhipuChat.fields, "-api-key-env")}`);
-expectEqual(valueOf(atZhipuChat.fields, "-api-key-env"), "ZHIPU_API_KEY", "a sibling mode with no bucket gets its canonical value");
+expectEqual(valueOf(atZhipuChat.fields, "-api-key-env"), "ZAI_CODING_CN_API_KEY", "a sibling mode with no bucket gets its canonical value");
 
 // A mode switch is itself a pending change: without that, entering a mode whose
 // bucket already held the same values left the save control disabled and the

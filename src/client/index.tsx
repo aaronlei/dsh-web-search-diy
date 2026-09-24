@@ -232,7 +232,7 @@ const zh: Record<string, string> = {
 	baseURL: "接口地址 baseURL",
 	baseURLHint: "切换协议时自动填入官方地址；仍可改为任意自定义地址，留空保存即恢复该模式默认地址。DeepSeek 官方模式留空时还会回退到环境变量 DEEPSEEK_SEARCH_BASE_URL。",
 	apiKeyEnv: "凭据引用 apiKeyEnv",
-	apiKeyEnvHint: "留空则使用当前协议模式的默认引用（OpenAI 兼容：QWEN_TOKEN_PLAN_CN_API_KEY；DeepSeek 官方：DEEPSEEK_API_KEY；智谱：ZHIPU_API_KEY 或 ZAI_CODING_CN_API_KEY）。切换协议时，属于其他服务商家族的引用会自动换成新协议的默认值，自定义引用名则保留。",
+	apiKeyEnvHint: "留空则使用当前协议模式的默认引用（OpenAI 兼容：QWEN_TOKEN_PLAN_CN_API_KEY；DeepSeek 官方：DEEPSEEK_API_KEY；智谱：ZAI_CODING_CN_API_KEY，其后兼容历史名 ZHIPU_API_KEY）。切换协议时，属于其他服务商家族的引用会自动换成新协议的默认值，自定义引用名则保留。",
 	model: "模型 model",
 	modelHint: "留空使用默认；OpenAI 兼容模式为 deepseek-v4-flash-0731，DeepSeek 官方为 deepseek-flash，智谱问答增强为 glm-5.3-flash（配思考强度 low）。免费档 glm-4.7-flash 经常限流不可用，不建议。",
 	maxOutputTokens: "最大输出 tokens",
@@ -307,7 +307,7 @@ const en: Record<string, string> = {
 	baseURL: "Endpoint (baseURL)",
 	baseURLHint: "Auto-filled with the official endpoint on protocol switch; still yours to override — saving it blank restores the mode default. In DeepSeek official mode a blank endpoint also falls back to the DEEPSEEK_SEARCH_BASE_URL environment variable.",
 	apiKeyEnv: "Credential reference (apiKeyEnv)",
-	apiKeyEnvHint: "Leave blank to use the current mode's default (OpenAI-compatible: QWEN_TOKEN_PLAN_CN_API_KEY; DeepSeek official: DEEPSEEK_API_KEY; Zhipu: ZHIPU_API_KEY or ZAI_CODING_CN_API_KEY). A reference belonging to another vendor's family follows a protocol switch; a custom name is kept.",
+	apiKeyEnvHint: "Leave blank to use the current mode's default (OpenAI-compatible: QWEN_TOKEN_PLAN_CN_API_KEY; DeepSeek official: DEEPSEEK_API_KEY; Zhipu: ZAI_CODING_CN_API_KEY, then the historical ZHIPU_API_KEY). A reference belonging to another vendor's family follows a protocol switch; a custom name is kept.",
 	model: "Model",
 	modelHint: "Leave blank for the default: deepseek-v4-flash-0731 in OpenAI-compatible mode, deepseek-flash in DeepSeek official mode, glm-5.3-flash (with thinking effort low) in Zhipu chat mode. The free-tier glm-4.7-flash is frequently rate-limited and not recommended.",
 	maxOutputTokens: "Max output tokens",
@@ -554,11 +554,12 @@ function draftForMode(mode: Mode, buckets: Record<string, Bucket> | undefined): 
 const DRAFT_KEYS: readonly (keyof Draft)[] = ["mode", "baseURL", "apiKeyEnv", "model", "maxOutputTokens", "apiVersion", "maxUses", "anthropicThinking", "searchEngine", "count", "searchRecencyFilter", "contentSize", "reasoningEffort", "responsesReasoningEffort", "searchDomainFilter", "searchIntent", "searchPrompt"];
 /**
  * Official endpoint, model, and credential reference per protocol family,
- * canonical first: these are settled facts, not something the user should
- * have to look up. A family may list several acceptable values — Zhipu
- * deployments name their credential after the model provider they
- * configured (`zai-coding-cn` → `ZAI_CODING_CN_API_KEY`) — and every entry
- * counts as that family's own.
+ * highest priority first: these are settled facts, not something the user
+ * should have to look up. A family may list several acceptable values — the
+ * Zhipu chain leads with `ZAI_CODING_CN_API_KEY` (the name DeepSeek's
+ * credential plane uses for a `zai-coding-cn` provider) and keeps the
+ * historical `ZHIPU_API_KEY` behind it — and every entry counts as that
+ * family's own.
  */
 const OFFICIAL_ENDPOINTS: Record<Family, readonly string[]> = {
 	responses: ["https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"],
@@ -584,7 +585,7 @@ const OFFICIAL_MODELS: Record<Family, readonly string[]> = {
 const OFFICIAL_KEY_REFS: Record<Family, readonly string[]> = {
 	responses: ["QWEN_TOKEN_PLAN_CN_API_KEY"],
 	"anthropic-messages": ["DEEPSEEK_API_KEY"],
-	zhipu: ["ZHIPU_API_KEY", "ZAI_CODING_CN_API_KEY"]
+	zhipu: ["ZAI_CODING_CN_API_KEY", "ZHIPU_API_KEY"]
 };
 /** The family a mode belongs to: the key its official values live under. */
 function modeFamily(mode: Mode): Family {

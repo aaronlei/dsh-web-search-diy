@@ -42,13 +42,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `$DEEPSEEK_SEARCH_BASE_URL` before the built-in default, exactly like the
   shipped provider, and every Anthropic request is recorded on the calling
   session as `web/deepseek-search-llm-request`.
-- **Zhipu credential fallback** — with `apiKeyEnv` left unset, the Zhipu modes
-  try `ZHIPU_API_KEY` and then `ZAI_CODING_CN_API_KEY` — the name a deployment
-  usually gives the credential behind a `zai-coding-cn` model provider —
-  through the credentials service and then the launching environment. An
-  explicitly configured reference is used alone, the missing-credential error
-  names every candidate, and the configuration page reports "a key is
-  configured" when any candidate resolves.
+- **Zhipu credential chain** — with `apiKeyEnv` left unset, the Zhipu modes try
+  `ZAI_CODING_CN_API_KEY` first — the name DeepSeek's credential plane uses for
+  the key behind a `zai-coding-cn` model provider — and then the historical
+  `ZHIPU_API_KEY` this plugin used to default to, through the credentials
+  service and then the launching environment. An explicitly configured
+  reference is used alone, the missing-credential error names every candidate,
+  and the configuration page reports "a key is configured" when any candidate
+  resolves.
 
 ### Changed
 
