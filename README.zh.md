@@ -31,6 +31,12 @@
 它说的是与官方 `deepseek-official` 提供方完全相同的线上格式——已有该密钥、或
 自建 Anthropic 兼容网关的部署无需重新配置。
 
+该端点无法按档位或预算调节思考：实测 `reasoning_effort`（low/high）与
+`thinking.budget_tokens` 都不改变思考长度（1024 的预算甚至比不传预算思考更多），
+只有 `thinking: {type: "disabled"}` 能整段去掉推理过程（同题：38s → 8s、输出
+9444 → 2204 tokens）。因此 `anthropicThinking` 只暴露这一个开关；普通搜索查询
+的时延差别不大，省下的是思考 token。
+
 `zhipu-*` 模式：默认端点 `https://open.bigmodel.cn/api/paas/v4`，默认密钥
 引用 `ZHIPU_API_KEY`（若你的智谱凭据按所配置的 provider 命名——例如
 `zai-coding-cn` 对应的 `ZAI_CODING_CN_API_KEY`——把 `apiKeyEnv` 填成该名字，或
@@ -101,6 +107,7 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 | `maxOutputTokens` | 按模式：`anthropic-messages` 为 `4096`，其余为 `1024` | 单次搜索回合的输出上限（`responses` 的 `max_output_tokens`、`anthropic-messages` 与 `zhipu-chat-search` 的 `max_tokens`） |
 | `apiVersion` | `2023-06-01` | 每次请求发送的 `anthropic-version` 请求头（仅 `anthropic-messages` 模式） |
 | `maxUses` | `5` | 单次请求内 `web_search` 服务端工具的最大调用次数，作为 `max_uses` 发送（仅 `anthropic-messages` 模式） |
+| `anthropicThinking` | `default` | `default` 不传参数；`disabled` 发送 `thinking: {type: "disabled"}`（仅 `anthropic-messages` 模式） |
 | `searchEngine` | `search_std` | 智谱搜索引擎：`search_std` / `search_pro` / `search_pro_sogou` / `search_pro_quark`（仅智谱模式） |
 | `count` | `10` | 智谱返回条数（1-50）；请求自带 `maxResults` 上限时优先使用请求值（仅智谱模式） |
 | `searchRecencyFilter` | `noLimit` | 智谱时间范围：`noLimit` / `oneDay` / `oneWeek` / `oneMonth` / `oneYear`（仅智谱模式） |

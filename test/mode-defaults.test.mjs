@@ -52,6 +52,7 @@ function section(overrides = {}) {
 		maxOutputTokens: 1024,
 		apiVersion: "2023-06-01",
 		maxUses: 5,
+		anthropicThinking: "default",
 		searchEngine: "search_std",
 		count: 10,
 		searchRecencyFilter: "noLimit",
@@ -205,6 +206,13 @@ describe("output budget and environment fallback", () => {
 	it("lets the UI-managed file win over the mode's budget default", () => {
 		writeFileConfig({ mode: "anthropic-messages", maxOutputTokens: 16384 });
 		assert.equal(resolveOptions(ctx, section({ mode: "anthropic-messages" })).maxOutputTokens, 16384);
+	});
+
+	it("defaults the Anthropic thinking switch to the model's own mode", () => {
+		assert.equal(resolveOptions(ctx, section({ mode: "anthropic-messages" })).anthropicThinking, "default");
+		assert.equal(resolveOptions(ctx, section({ mode: "anthropic-messages", anthropicThinking: "disabled" })).anthropicThinking, "disabled");
+		writeFileConfig({ mode: "anthropic-messages", anthropicThinking: "disabled" });
+		assert.equal(resolveOptions(ctx, section({ mode: "anthropic-messages" })).anthropicThinking, "disabled");
 	});
 
 	it("honors DEEPSEEK_SEARCH_BASE_URL in the Anthropic mode only", () => {

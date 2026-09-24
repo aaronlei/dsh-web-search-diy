@@ -38,6 +38,7 @@ function baseOptions(overrides = {}) {
 		maxOutputTokens: 1024,
 		apiVersion: "2023-06-01",
 		maxUses: 5,
+		anthropicThinking: "default",
 		searchEngine: "search_std",
 		count: 10,
 		searchRecencyFilter: "noLimit",
@@ -252,6 +253,16 @@ describe("anthropic-messages mode", () => {
 		assert.equal(body.max_tokens, 1024);
 		assert.deepEqual(body.tools, [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }]);
 		assert.match(body.messages[0].content[0].text, /北京天气/);
+	});
+
+	it("sends the thinking switch only when it is turned off", async () => {
+		const onCalls = stubFetch(() => jsonResponse(anthropicPayload));
+		await anthropicProvider().search({ query: "q" });
+		assert.equal(JSON.parse(onCalls[0].init.body).thinking, void 0);
+
+		const offCalls = stubFetch(() => jsonResponse(anthropicPayload));
+		await anthropicProvider({ anthropicThinking: "disabled" }).search({ query: "q" });
+		assert.deepEqual(JSON.parse(offCalls[0].init.body).thinking, { type: "disabled" });
 	});
 
 	it("maps result blocks, citation snippets, page_age, and dedupes by url", async () => {

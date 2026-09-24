@@ -35,6 +35,14 @@ body), exactly as the shipped provider records it. It speaks the same wire
 format as `deepseek-official`, so a deployment already holding that key or
 fronting its own Anthropic-compatible gateway needs no reconfiguration.
 
+Thinking is not tunable by effort or budget on that endpoint: measured against
+it, `reasoning_effort` (low/high) and `thinking.budget_tokens` left the thinking
+length unchanged (a 1024-token budget even produced more thinking than no
+budget), while `thinking: {type: "disabled"}` removed the reasoning pass
+entirely (same prompt: 38s → 8s, 9444 → 2204 output tokens). `anthropicThinking`
+therefore exposes that one switch; on ordinary search queries the latency
+difference is small, the saving is in thinking tokens.
+
 In `zhipu-*` modes: default endpoint `https://open.bigmodel.cn/api/paas/v4`,
 default key reference `ZHIPU_API_KEY` (a deployment that names its Zhipu
 credential after the provider it configured — say `ZAI_CODING_CN_API_KEY` from a
@@ -115,6 +123,7 @@ settings section / entry config > package defaults.**
 | `maxOutputTokens` | per mode: `4096` in `anthropic-messages`, `1024` elsewhere | Output cap for one search turn (`max_output_tokens` in `responses`, `max_tokens` in `anthropic-messages` and `zhipu-chat-search`) |
 | `apiVersion` | `2023-06-01` | `anthropic-version` header sent with each request (`anthropic-messages` mode only) |
 | `maxUses` | `5` | Maximum `web_search` server-tool uses per request, sent as `max_uses` (`anthropic-messages` mode only) |
+| `anthropicThinking` | `default` | `default` sends no parameter; `disabled` sends `thinking: {type: "disabled"}` (`anthropic-messages` mode only) |
 | `searchEngine` | `search_std` | Zhipu engine: `search_std` / `search_pro` / `search_pro_sogou` / `search_pro_quark` (Zhipu modes only) |
 | `count` | `10` | Zhipu result count (1-50); a request-supplied `maxResults` cap takes precedence (Zhipu modes only) |
 | `searchRecencyFilter` | `noLimit` | Zhipu recency window: `noLimit` / `oneDay` / `oneWeek` / `oneMonth` / `oneYear` (Zhipu modes only) |
