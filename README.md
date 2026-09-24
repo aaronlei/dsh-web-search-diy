@@ -123,7 +123,7 @@ reference, output budget, and search options, so entering a mode restores that
 mode's settings — including after a page reload — instead of carrying the
 previous mode's values over or replacing them with canonical defaults. A mode
 with no bucket yet starts from that mode's official values. A file written by
-0.3.x (one flat object) is projected onto the mode it selected when read, and
+an earlier release (one flat object) is projected onto the mode it selected when read, and
 the next save rewrites it in the bucketed shape; reads never write.
 
 | Key | Default | Meaning |

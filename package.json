@@ -1,7 +1,7 @@
 {
   "name": "dsh-web-search-diy",
-  "version": "0.2.2",
-  "description": "DSH web search provider with three selectable protocols: any OpenAI-compatible Responses API gateway exposing the native web_search tool, Zhipu's Web Search API (basic retrieval), and Zhipu's Web Search in Chat (answer augmentation). Registers a ctx.web search provider and overrides the shared searchProvider to it; UI copy follows the app language (zh / en).",
+  "version": "1.0.0",
+  "description": "DSH web search provider with four selectable protocols: any OpenAI-compatible Responses API gateway exposing the native web_search tool, DeepSeek's Anthropic-compatible Messages API with the native web_search_20250305 server tool, Zhipu's Web Search API (basic retrieval), and Zhipu's Web Search in Chat (answer augmentation). Registers a ctx.web search provider and overrides the shared searchProvider to it; UI copy follows the app language (zh / en).",
   "license": "MIT",
   "author": "aaronlei",
   "publishConfig": {
@@ -10,7 +10,8 @@
   "type": "module",
   "main": "lib/index.js",
   "scripts": {
-    "test": "node --test \"test/**/*.test.mjs\""
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "test:client": "node scripts/verify-client.mjs"
   },
   "exports": {
     ".": "./lib/index.js",
@@ -51,7 +52,6 @@
   "keywords": [
     "deepseek",
     "dsh",
-    "deepseek-harness",
     "plugin",
     "web-search",
     "web_search",
@@ -62,7 +62,9 @@
     "qwen",
     "zhipu",
     "bigmodel",
-    "glm"
+    "glm",
+    "anthropic-messages",
+    "messages-api"
   ],
   "repository": {
     "type": "git",
