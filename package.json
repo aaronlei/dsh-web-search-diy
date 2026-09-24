@@ -10,8 +10,11 @@
   "type": "module",
   "main": "lib/index.js",
   "scripts": {
+    "bundle": "tsdown",
+    "watch": "tsdown --watch",
+    "typecheck": "tsc --noEmit",
     "test": "node --test \"test/**/*.test.mjs\"",
-    "test:client": "node scripts/verify-client.mjs"
+    "test:client": "tsdown && node scripts/verify-client.mjs"
   },
   "exports": {
     ".": "./lib/index.js",
@@ -29,10 +32,15 @@
   "devDependencies": {
     "@deepseek-ai/dsh-credentials": "^0.1.2-rc.1",
     "@deepseek-ai/dsh-launch-environment": "^0.1.2-rc.1",
-    "@deepseek-ai/dsh-web": "^0.1.2-rc.1"
+    "@deepseek-ai/dsh-web": "^0.1.2-rc.1",
+    "@types/react": "~18.3.1",
+    "react": "^18.2.0",
+    "tsdown": "^0.23.0",
+    "typescript": "^7.0.2"
   },
   "files": [
     "lib",
+    "!lib/**/*.map",
     "cordis.patch.yml",
     "LICENSE",
     "README.md",

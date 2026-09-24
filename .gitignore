@@ -1,5 +1,6 @@
 node_modules/
 *.tgz
+lib/*.map
 /.idea/
 pnpm-workspace.yaml
 pnpm-lock.yaml
