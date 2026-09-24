@@ -4,7 +4,7 @@
  * and renders both views of the entry with a fake React, verifying the new
  * `plugins.row.config` contract without a live dsh web.
  *
- * Run: node scripts/verify-client.mjs
+ * Run: npm run test:client
  */
 import { readFileSync } from "node:fs";
 
@@ -20,7 +20,6 @@ const fakeJsx = (type, props, key) => ({ $$type: "jsx", type, props, key });
 const fakeJsxs = fakeJsx;
 
 // --- fake browser globals -----------------------------------------------------
-const styleEl = { textContent: "" };
 globalThis.window = {
 	__ModuleLoader__: {
 		load({ id, factory }) {
@@ -35,8 +34,10 @@ globalThis.window = {
 	},
 };
 globalThis.document = {
-	createElement: () => styleEl,
+	// injectStyles probes for an existing <style>, then sets dataset on a fresh one.
+	createElement: () => ({ dataset: {}, textContent: "" }),
 	head: { appendChild: () => {} },
+	querySelector: () => null,
 };
 
 // --- load the bundle ----------------------------------------------------------
@@ -70,7 +71,11 @@ if (typeof exports.apply !== "function") throw new Error("apply missing");
 const effects = [];
 const ctx = {
 	effect(fn, label) {
+		// cordis runs the callback immediately and keeps its disposer on the
+		// calling fiber. The bundle registers every side effect through an effect,
+		// so a stub that only records the callback never reaches slots.register.
 		effects.push({ fn, label });
+		fn();
 	},
 	locale: {
 		registered: null,
