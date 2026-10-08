@@ -4,6 +4,35 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [1.0.1] - 2026-10-08
+
+### Fixed
+
+- **The plugin is no longer skipped on dsh 0.2.x** — the `peerDependencies`
+  range was still `^0.1.2-rc.1`, which caret-expands to `>=0.1.2-rc.1 <0.2.0`
+  under 0.x semantics. Moving the runtime to 0.2.0-rc.2 therefore tripped the
+  app-boot compatibility gate (`Plugin dsh-web-search-diy@1.0.0 is incompatible
+  with dsh 0.2.0-rc.2: peerDependencies …`) and the whole profile bundle was
+  skipped, leaving no search provider registered at all.
+
+### Changed
+
+- **Peer range widened to two release lines** —
+  `@deepseek-ai/dsh-web`, `@deepseek-ai/dsh-credentials`, and
+  `@deepseek-ai/dsh-launch-environment` now declare
+  `^0.1.6-alpha.2 || ^0.2.0-rc.1`. Under 0.x a caret never crosses a minor, so
+  covering both lines requires the explicit `||` (a single `|` is not a valid
+  semver range and silently matches nothing). The lower bound is
+  0.1.6-alpha.2 — the release that introduced the `plugins.row.config` slot this
+  configuration page registers into, and therefore the oldest runtime on which
+  that page is reachable at all. The three packages were verified to export
+  identical public symbols from 0.1.2-rc.1 through 0.2.1-alpha.1 apart from
+  `dsh-launch-environment`'s added `launchedThroughSsh`.
+- **`devDependencies` and the lockfile moved to 0.2.0-rc.2** — development and
+  tests now resolve against the current runtime, so a linked install can no
+  longer pick up a shadowed 0.1.x copy of those peers from the plugin's own
+  `node_modules`.
+
 ## [1.0.0] - 2026-09-23
 
 ### Added

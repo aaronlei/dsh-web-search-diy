@@ -1,6 +1,6 @@
 {
   "name": "dsh-web-search-diy",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "DSH web search provider with four selectable protocols: any OpenAI-compatible Responses API gateway exposing the native web_search tool, DeepSeek's Anthropic-compatible Messages API with the native web_search_20250305 server tool, Zhipu's Web Search API (basic retrieval), and Zhipu's Web Search in Chat (answer augmentation). Registers a ctx.web search provider and overrides the shared searchProvider to it; UI copy follows the app language (zh / en).",
   "license": "MIT",
   "author": "aaronlei",
@@ -25,14 +25,14 @@
     "@deepseek-ai/schemastery": "^3.18.2"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-credentials": "^0.1.2-rc.1",
-    "@deepseek-ai/dsh-launch-environment": "^0.1.2-rc.1",
-    "@deepseek-ai/dsh-web": "^0.1.2-rc.1"
+    "@deepseek-ai/dsh-credentials": "^0.1.6-alpha.2 || ^0.2.0-rc.1",
+    "@deepseek-ai/dsh-launch-environment": "^0.1.6-alpha.2 || ^0.2.0-rc.1",
+    "@deepseek-ai/dsh-web": "^0.1.6-alpha.2 || ^0.2.0-rc.1"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-credentials": "^0.1.2-rc.1",
-    "@deepseek-ai/dsh-launch-environment": "^0.1.2-rc.1",
-    "@deepseek-ai/dsh-web": "^0.1.2-rc.1",
+    "@deepseek-ai/dsh-credentials": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-launch-environment": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-web": "^0.2.0-rc.2",
     "@types/react": "~18.3.1",
     "react": "^18.2.0",
     "tsdown": "^0.23.0",
