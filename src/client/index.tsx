@@ -17,7 +17,8 @@
  * 卡片通过 host 的 /api/web-search-diy/config 端点读写配置：
  *   - mode / baseURL / apiKeyEnv / model / maxOutputTokens 及智谱搜索
  *     选项（searchEngine / count / searchRecencyFilter / contentSize /
- *     searchDomainFilter / searchIntent / searchPrompt）→ 存 $DSH_HOME/dsh-web-search-diy.json
+ *     searchDomainFilter / searchIntent / requireSearch / searchPrompt）
+ *     → 存 $DSH_HOME/dsh-web-search-diy.json
  *   - API key → host 经 credentials seam 只写存储（不落配置、不回显）
  * 编辑先暂存在草稿里（header 出现「未保存」），点保存才提交；保存即生效，无需重启。
  *
@@ -62,6 +63,7 @@ interface Draft {
 	responsesReasoningEffort: "" | "low" | "high";
 	searchDomainFilter: string;
 	searchIntent: boolean;
+	requireSearch: boolean;
 	searchPrompt: string;
 }
 /** The host's authoritative snapshot: a draft plus whether a key resolves. */
@@ -85,6 +87,7 @@ interface Bucket {
 	responsesReasoningEffort?: Exclude<Draft["responsesReasoningEffort"], "">;
 	searchDomainFilter?: string;
 	searchIntent?: boolean;
+	requireSearch?: boolean;
 	searchPrompt?: string;
 }
 /** One GET /config payload: the selected projection plus every bucket. */
@@ -251,6 +254,8 @@ const zh: Record<string, string> = {
 	engineQuark: "search_pro_quark（夸克）",
 	count: "结果条数 count",
 	countHint: "单次搜索返回的结果条数（1-50）；请求自带上限时优先使用请求值；留空保存恢复默认。",
+	countSogouNote: "search_pro_sogou 仅支持 10/20/30/40/50。",
+	countQuarkNote: "search_pro_quark 不支持该参数，填写后将被忽略。",
 	searchRecencyFilter: "时间范围 searchRecencyFilter",
 	searchRecencyHint: "仅智谱模式生效；限定网页发布时间窗口。",
 	recencyNoLimit: "不限",
@@ -273,10 +278,13 @@ const zh: Record<string, string> = {
 	responsesReasoningEffortHint: "仅 OpenAI 兼容模式生效；透传 OpenAI 标准 reasoning.effort。默认不传，随大模型自身模式；网关不支持该参数时请保持默认。",
 	searchDomainFilter: "域名白名单 searchDomainFilter",
 	searchDomainHint: "仅智谱模式生效；只返回指定域名（如 www.example.com）的结果，留空不限。",
+	domainQuarkNote: "search_pro_quark 不支持该参数，填写后将被忽略。",
 	searchIntent: "意图识别 searchIntent",
 	searchIntentHint: "仅智谱基础检索生效；关闭则跳过意图识别直接搜索。",
 	searchIntentOn: "开启",
 	searchIntentOff: "关闭",
+	requireSearch: "强制搜索 requireSearch",
+	requireSearchHint: "仅智谱问答增强生效；开启后无搜索结果时接口拒绝作答，确保回答来自实时检索。默认关闭，与官方默认一致。",
 	searchPrompt: "搜索提示词 searchPrompt",
 	searchPromptHint: "仅智谱问答增强生效；定制搜索结果的整合方式，留空使用官方默认。",
 	invalidNumber: "请填正整数；留空表示使用默认值。",
@@ -326,6 +334,8 @@ const en: Record<string, string> = {
 	engineQuark: "search_pro_quark (Quark)",
 	count: "Result count",
 	countHint: "How many results one search returns (1-50); a request-supplied cap takes precedence. Saving it blank restores the default.",
+	countSogouNote: "search_pro_sogou only accepts 10/20/30/40/50.",
+	countQuarkNote: "search_pro_quark does not support this parameter; any value is ignored.",
 	searchRecencyFilter: "Recency filter",
 	searchRecencyHint: "Zhipu modes only; restricts the page publication window.",
 	recencyNoLimit: "No limit",
@@ -348,10 +358,13 @@ const en: Record<string, string> = {
 	responsesReasoningEffortHint: "OpenAI-compatible mode only; passes the OpenAI-standard reasoning.effort. Default sends nothing and follows the model's own mode; keep the default if your gateway rejects the parameter.",
 	searchDomainFilter: "Domain allowlist",
 	searchDomainHint: "Zhipu modes only; only results from the given domain (e.g. www.example.com), blank for no restriction.",
+	domainQuarkNote: "search_pro_quark does not support this parameter; any value is ignored.",
 	searchIntent: "Intent recognition",
 	searchIntentHint: "Zhipu basic retrieval only; off skips intent recognition and searches directly.",
 	searchIntentOn: "On",
 	searchIntentOff: "Off",
+	requireSearch: "Require search",
+	requireSearchHint: "Zhipu chat mode only; when on, the endpoint refuses to answer without search results, keeping the answer grounded in live retrieval. Off by default, matching the official default.",
 	searchPrompt: "Search prompt",
 	searchPromptHint: "Zhipu chat mode only; customizes how search results are fused, blank for the official default.",
 	invalidNumber: "Enter a positive integer, or leave blank to use the default.",
@@ -510,6 +523,7 @@ function normalizeBucket(bucket: Bucket): Omit<Draft, "mode"> {
 		responsesReasoningEffort: bucket.responsesReasoningEffort ?? "",
 		searchDomainFilter: bucket.searchDomainFilter ?? "",
 		searchIntent: !!bucket.searchIntent,
+		requireSearch: !!bucket.requireSearch,
 		searchPrompt: bucket.searchPrompt ?? ""
 	};
 }
@@ -551,7 +565,7 @@ function draftForMode(mode: Mode, buckets: Record<string, Bucket> | undefined): 
 	};
 }
 /** Draft keys compared against the saved snapshot to flag "unsaved". */
-const DRAFT_KEYS: readonly (keyof Draft)[] = ["mode", "baseURL", "apiKeyEnv", "model", "maxOutputTokens", "apiVersion", "maxUses", "anthropicThinking", "searchEngine", "count", "searchRecencyFilter", "contentSize", "reasoningEffort", "responsesReasoningEffort", "searchDomainFilter", "searchIntent", "searchPrompt"];
+const DRAFT_KEYS: readonly (keyof Draft)[] = ["mode", "baseURL", "apiKeyEnv", "model", "maxOutputTokens", "apiVersion", "maxUses", "anthropicThinking", "searchEngine", "count", "searchRecencyFilter", "contentSize", "reasoningEffort", "responsesReasoningEffort", "searchDomainFilter", "searchIntent", "requireSearch", "searchPrompt"];
 /**
  * Official endpoint, model, and credential reference per protocol family,
  * highest priority first: these are settled facts, not something the user
@@ -610,6 +624,7 @@ function emptyDraft(): Draft {
 		responsesReasoningEffort: "",
 		searchDomainFilter: "",
 		searchIntent: false,
+		requireSearch: false,
 		searchPrompt: ""
 	};
 }
@@ -677,6 +692,15 @@ function ConfigPage(props: { t: (key: string) => string }) {
 	const maxUsesInvalid = maxUsesText !== "" && !(Number.isInteger(Number(maxUsesText)) && Number(maxUsesText) >= 1);
 	const isZhipu = draft.mode.startsWith("zhipu-");
 	const isZhipuChat = draft.mode === "zhipu-chat-search";
+	/**
+	 * Engine-parameter compatibility notes straight from the Zhipu OpenAPI
+	 * (`WebSearchObject`): `count` is documented for std/pro/sogou only, and
+	 * sogou restricts it to 10/20/30/40/50; `search_domain_filter` for
+	 * std/pro/sogou. The values are still sent as configured — the endpoint
+	 * ignores them — so the note rides the hint instead of blocking input.
+	 */
+	const countEngineNote = draft.searchEngine === "search_pro_quark" ? t("countQuarkNote") : draft.searchEngine === "search_pro_sogou" ? t("countSogouNote") : "";
+	const domainEngineNote = draft.searchEngine === "search_pro_quark" ? t("domainQuarkNote") : "";
 	const discard = () => {
 		setDraft(draftForMode(saved.mode, buckets));
 		setApiKeyDraft("");
@@ -776,7 +800,7 @@ function ConfigPage(props: { t: (key: string) => string }) {
 					key="count"
 					id="plugin-config-web-search-diy-count"
 					label={t("count")}
-					hint={t("countHint")}
+					hint={countEngineNote !== "" ? `${t("countHint")} ${countEngineNote}` : t("countHint")}
 					numeric
 					invalid={countInvalid}
 					invalidLabel={t("invalidCount")}
@@ -820,7 +844,7 @@ function ConfigPage(props: { t: (key: string) => string }) {
 					key="searchDomainFilter"
 					id="plugin-config-web-search-diy-domain-filter"
 					label={t("searchDomainFilter")}
-					hint={t("searchDomainHint")}
+					hint={domainEngineNote !== "" ? `${t("searchDomainHint")} ${domainEngineNote}` : t("searchDomainHint")}
 					text={draft.searchDomainFilter}
 					onEdit={(text) => {
 						setDraft((current) => ({ ...current, searchDomainFilter: text }));
@@ -849,6 +873,16 @@ function ConfigPage(props: { t: (key: string) => string }) {
 					]}
 					onEdit={(value) => {
 						setDraft((current) => ({ ...current, reasoningEffort: value as Draft["reasoningEffort"] }));
+					}}
+				/> : null,
+				draft.mode === "zhipu-chat-search" ? <SwitchField
+					key="requireSearch"
+					id="plugin-config-web-search-diy-require-search"
+					label={t("requireSearch")}
+					hint={t("requireSearchHint")}
+					checked={draft.requireSearch}
+					onEdit={(checked) => {
+						setDraft((current) => ({ ...current, requireSearch: checked }));
 					}}
 				/> : null,
 				draft.mode === "zhipu-chat-search" ? <ValueField

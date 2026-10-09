@@ -4,6 +4,43 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [1.0.2] - 2026-10-09
+
+### Changed
+
+- **`responses` mode sources gain title/snippet on Zhipu** — live verification
+  against `https://open.bigmodel.cn/api/v1/responses` showed the gateway
+  attaches `results[]` (`url` / `title` / `snippet`) to each `web_search_call`
+  while emitting no `url_citation` annotations, leaving every source untitled.
+  The mapper now joins `results[]` by url as fallback metadata; annotation
+  titles keep precedence, and Qwen/OpenAI-shaped responses (no `results[]`)
+  are untouched. (The OpenAPI document's `action.source` string-array shape
+  does not match the live response — the real body carries the same
+  `action.sources` objects the Qwen gateways send.)
+- **`request_id` on the two `paas/v4` Zhipu calls** — each Web Search API and
+  chat search now carries a generated UUID for platform-side correlation; the
+  Response API request schema has no such field, so `responses` is unchanged.
+- **`available()` checks per mode** — `maxUses`/`apiVersion` count only in
+  `anthropic-messages`, `count` only in the Zhipu modes; previously every
+  mode's check ran against every key (always true through the defaults).
+- Dropped the inert `model` entry from the `zhipu-web-search` profile (the
+  mode sends no model).
+- `mapResponsesResponse` is now exported (the only one of the four mappers
+  that was missing from the bundle's export list).
+
+### Added
+
+- **`requireSearch` (zhipu-chat-search)** — exposes the tool's documented
+  `require_search` switch: when on, the endpoint refuses to answer without
+  search results. Default off, which keeps the request body byte-identical to
+  the historical one. Shown on the configuration page with zh/en copy.
+- **Engine compatibility notes on the configuration page** — selecting
+  `search_pro_quark` annotates `count` and `searchDomainFilter` with
+  "not supported by this engine" (values are still sent as configured; the
+  endpoint ignores them), and `search_pro_sogou` annotates `count` with its
+  10/20/30/40/50 restriction, straight from the Zhipu OpenAPI.
+
 ## [1.0.1] - 2026-10-08
 
 ### Fixed

@@ -112,6 +112,7 @@ pnpm run test        # 服务端测试
 | `contentSize` | `medium` | 智谱摘要字数：`medium` / `high`（仅智谱模式） |
 | `searchDomainFilter` | — | 智谱域名白名单，如 `www.example.com`（仅智谱模式） |
 | `searchIntent` | `false` | 智谱意图识别；关闭则跳过识别直接搜索（仅 `zhipu-web-search`） |
+| `requireSearch` | `false` | 强制接口在有搜索结果时才作答（`require_search: true`）；默认不传，请求体与历史行为一致（仅 `zhipu-chat-search`） |
 | `searchPrompt` | — | 智谱问答增强的搜索提示词，留空用官方默认（仅 `zhipu-chat-search`） |
 | `reasoningEffort` | `low` | 问答增强回合的思考强度 `reasoning_effort`：`low` / `high` / `max`；`low` 让 GLM-5.3-Flash 这类强制思考模型保持快速（仅 `zhipu-chat-search`） |
 | `responsesReasoningEffort` | —（不传） | OpenAI 兼容回合的推理档位 `reasoning.effort`：`low` / `high`；不传则随大模型自身模式（仅 `responses`） |
@@ -126,7 +127,7 @@ pnpm run test        # 服务端测试
 
 协议列表把 **Anthropic 兼容（Messages API + web_search，DeepSeek 官方采用）** 放在首位，而已存默认值仍是 `responses`。切换协议时会填入该模式的官方接口地址、模型与凭据引用：属于「正在离开的那个服务商家族」的值会跟随切换，不属于任何已知家族的自定义值（网关令牌、自定义引用名）原样保留。由于进入一个桶里已是当前值的模式时表单看起来毫无变化，**协议选择本身就算一次待保存变更**：模式切换与改动的参数由同一次保存一起写入，只有草稿与宿主已存值完全一致时保存按钮才禁用。
 
-字段按模式显示，与取值真正生效的位置对应：`zhipu-web-search` 隐藏 `model` 与 `maxOutputTokens`（无模型回合，条数由 `count` 决定），`searchIntent` 只在 `zhipu-web-search` 出现，`searchPrompt` 与 `reasoningEffort` 只在 `zhipu-chat-search` 出现，`apiVersion`、`maxUses`、`anthropicThinking` 只在 `anthropic-messages` 出现。保存被拒时页面保留，错误显示在底部 footer——与官方配置页报告保存失败的位置一致。
+字段按模式显示，与取值真正生效的位置对应：`zhipu-web-search` 隐藏 `model` 与 `maxOutputTokens`（无模型回合，条数由 `count` 决定），`searchIntent` 只在 `zhipu-web-search` 出现，`requireSearch`、`searchPrompt` 与 `reasoningEffort` 只在 `zhipu-chat-search` 出现，`apiVersion`、`maxUses`、`anthropicThinking` 只在 `anthropic-messages` 出现。选中 `search_pro_quark` 时，`count` 与 `searchDomainFilter` 的提示会注明该引擎不支持（值仍按原样发送，由端点忽略）。保存被拒时页面保留，错误显示在底部 footer——与官方配置页报告保存失败的位置一致。
 
 ## 工作原理
 
@@ -146,7 +147,7 @@ pnpm run test        # 服务端测试
       对话 LLM 基于搜索结果作答
 ```
 
-- **responses**：每次搜索是一次 Responses API 调用（完整的一轮模型推理）。结果返回去重后的 `sources[]`（url + `url_citation` 注解提供的可选标题）以及模型生成的 `content`。响应中若没有任何 `web_search_call` 块，则以 `WEB_PROVIDER_ERROR` 响亮失败——绝不做从文本里扒链接的降级。
+- **responses**：每次搜索是一次 Responses API 调用（完整的一轮模型推理）。结果返回去重后的 `sources[]`（url + `url_citation` 注解提供的可选标题，另有智谱网关随 `web_search_call.results[]` 附带的 title/snippet 兜底补全）以及模型生成的 `content`。响应中若没有任何 `web_search_call` 块，则以 `WEB_PROVIDER_ERROR` 响亮失败——绝不做从文本里扒链接的降级。
 - **anthropic-messages**：每次搜索是一次 Anthropic Messages 调用，带原生 `web_search_20250305` 服务端工具。`web_search_tool_result` 块成为去重的 `sources[]`（`url`、可选 `title`、`page_age` → `publishedAt`），`snippet` 由响应的 `citations[].cited_text` 关联得到。提供方自己的文本不作为 `content` 返回（与官方提供方一致）。报告工具失败的 result 块（`max_uses_exceeded`、`too_many_requests` 等）会带出该错误码而不是笼统的 unprocessable body；没有任何 result 块的响应以 `WEB_PROVIDER_ERROR` 响亮失败。
 - **zhipu-web-search**：`search_result[]` 直接映射为去重的 `sources[]`（url + title），并取前至多八条「标题 + 摘要」拼接为 `content` 速览。空结果是合法结果，返回空 `sources[]` 而非报错。
 - **zhipu-chat-search**：`choices[0].message.content` 即融合回答（`content`），工具声明的 `search_result: true` 让端点附带来源详情，从消息级/根级 `web_search` 字段防御式解析为 `sources[]`；有回答而无来源详情同样可用。
