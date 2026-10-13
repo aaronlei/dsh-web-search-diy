@@ -80,6 +80,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `reasoning.effort` → `output_config` → `thinking` → `reasoning_effort` in that
   order, so an unsupported preference degrades to the endpoint's own default
   instead of failing the whole search.
+- **Kimi verified live on both protocols** — `responses` mode works with
+  `https://api.moonshot.cn/v1` (kimi-k3): `{"type": "web_search"}` runs, `include`
+  returns 12–20 titled sources, and the answer arrives as `content`. Contrary to
+  its own tools schema, Kimi's Anthropic-compatible endpoint
+  (`https://api.moonshot.cn/anthropic/v1`) also runs `web_search_20250305`,
+  returning `web_search_tool_result` blocks that carry `title` and an ISO
+  `page_age`, so `anthropic-messages` mode works there too (20 sources). Both
+  endpoints list some Google redirect URLs among their sources; those are passed
+  through exactly as the provider sent them. Qwen/Model Studio, by contrast,
+  publishes no Responses API at all: its Base URL overview lists only
+  OpenAI-compatible (`.../compatible-mode/v1`) and Anthropic-compatible
+  (`.../apps/anthropic`) endpoints, and each plan's key must match its domain.
 
 ## [1.0.2] - 2026-10-09
 
