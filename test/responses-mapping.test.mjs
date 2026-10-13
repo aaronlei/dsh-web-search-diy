@@ -6,6 +6,14 @@
  *   `web_search_call` — richer than the Qwen/OpenAI gateways, whose only title
  *   source is the `url_citation` annotation (often absent). The mapper joins
  *   `results` by url as fallback metadata; annotation titles keep precedence.
+ * - DeepSeek's Responses API (`deepseek-v4-pro`, verified live 2026-10-13)
+ *   reports a search as `{type: "search", queries}` and each visited page as a
+ *   separate `{type: "open_page", url}` call, never sends `action.sources[]`,
+ *   and leaves `message.annotations` empty. The mapper therefore treats
+ *   `open_page` urls and `url_citation` annotations as sources too, and counts a
+ *   `web_search_call` block (with or without sources) as proof the search ran.
+ *   The same endpoint silently ignores `tools:[{type:"web_search"}]` for
+ *   `deepseek-flash`, whose answer without any search evidence stays an error.
  * - The two `paas/v4` Zhipu modes attach a `request_id` (6-64 chars, UUID) for
  *   platform-side correlation; the Response API schema has no such field.
  * - `require_search` (zhipu-chat-search only) rides the tool object when on
@@ -95,6 +103,94 @@ describe("mapResponsesResponse: web_search_call.results[] fallback metadata", ()
 			]
 		});
 		assert.deepEqual(result.sources, [{ url: "https://q.example/" }]);
+	});
+});
+
+describe("mapResponsesResponse: sources beyond action.sources[]", () => {
+	it("collects DeepSeek open_page urls and strips the internal call fragment", () => {
+		const result = mapResponsesResponse({
+			output: [
+				{ type: "reasoning", status: "completed", content: [{ type: "reasoning_text", text: "…" }] },
+				{ type: "web_search_call", status: "completed", action: { type: "search", queries: ["DeepSeek V4 发布时间"] } },
+				{ type: "web_search_call", status: "completed", action: { type: "open_page", url: "https://api-docs.deepseek.com/updates/#ws_call_id=call_01_ABC" } },
+				{ type: "web_search_call", status: "failed", action: { type: "open_page", url: "https://stcn.com/article/detail/3816053.html#ws_call_id=call_02_DEF" } },
+				{ type: "message", status: "completed", role: "assistant", content: [{ type: "output_text", text: "根据最新搜索结果……", annotations: [] }] }
+			]
+		});
+		assert.deepEqual(result, {
+			content: "根据最新搜索结果……",
+			sources: [
+				{ url: "https://api-docs.deepseek.com/updates/" },
+				{ url: "https://stcn.com/article/detail/3816053.html" }
+			],
+			truncated: false
+		});
+	});
+
+	it("keeps the answer when the search block lists no source at all", () => {
+		const result = mapResponsesResponse({
+			output: [
+				{ type: "web_search_call", status: "completed", action: { type: "search", queries: ["q"] } },
+				{ type: "message", content: [{ type: "output_text", text: "答案" }] }
+			]
+		});
+		assert.deepEqual(result, { content: "答案", sources: [], truncated: false });
+	});
+
+	it("falls back to url_citation annotations when no block lists urls", () => {
+		const result = mapResponsesResponse({
+			output: [{
+				type: "message",
+				content: [{
+					type: "output_text",
+					text: "有引用",
+					annotations: [
+						{ type: "url_citation", url: "https://cite.example/", title: "引用来源" },
+						{ type: "url_citation", url: "https://cite.example/" }
+					]
+				}]
+			}]
+		});
+		assert.deepEqual(result, {
+			content: "有引用",
+			sources: [{ url: "https://cite.example/", title: "引用来源" }],
+			truncated: false
+		});
+	});
+
+	it("still fails when the model answered without any search evidence", () => {
+		assert.throws(() => mapResponsesResponse({
+			output: [
+				{ type: "reasoning", content: [{ type: "reasoning_text", text: "…" }] },
+				{ type: "message", content: [{ type: "output_text", text: "我目前无法执行网页搜索——在这个对话中没有开启联网搜索功能。" }] }
+			]
+		}), /no web_search_call block and no citations/u);
+	});
+
+	it("fails on a response with neither search evidence nor answer text", () => {
+		assert.throws(() => mapResponsesResponse({ output: [] }), /neither a web_search_call block, citations, nor answer text/u);
+		assert.throws(() => mapResponsesResponse({ output: [{ type: "message", content: [{ type: "output_text", text: "   " }] }] }), /neither a web_search_call block, citations, nor answer text/u);
+	});
+
+	it("ignores malformed source entries", () => {
+		const result = mapResponsesResponse({
+			output: [
+				{
+					type: "web_search_call",
+					action: {
+						sources: [
+							{ type: "url" },
+							{ type: "image", url: "https://x.example/" },
+							{ type: "url", url: "" },
+							{ type: "url", url: "https://ok.example/" }
+						]
+					}
+				},
+				{ type: "web_search_call", action: { type: "open_page", url: "" } },
+				{ type: "message", content: [{ type: "output_text", text: "答案", annotations: [null, { type: "url_citation", url: 5 }] }] }
+			]
+		});
+		assert.deepEqual(result.sources, [{ url: "https://ok.example/" }]);
 	});
 });
 

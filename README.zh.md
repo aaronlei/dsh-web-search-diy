@@ -34,7 +34,7 @@
 
 DSH 自带的搜索提供方（`deepseek-official`）走的是 DeepSeek 自家 Anthropic 兼容端点——指不到其他网关，而且部署时要切换很麻烦。本插件是**一等公民插件**：向 `ctx.web` 注册搜索提供方，并把共享的 `searchProvider` 覆盖到它，与生态内其他提供方插件一致。搜索模型与对话模型完全解耦——任意对话模型都可以搭配使用。
 
-> **为什么走 Responses API？** 很多 OpenAI 兼容网关的内置联网搜索只在 Responses API（`/responses`）上、且显式声明 `tools: [{type: "web_search"}]` 时才会触发——Chat Completions 的搜索开关参数会被静默忽略。本插件走 Responses 协议，并解析 `web_search_call` 块里结构化的 `action.sources` 为 seam 标准的引用来源。
+> **为什么走 Responses API？** 很多 OpenAI 兼容网关的内置联网搜索只在 Responses API（`/responses`）上、且显式声明 `tools: [{type: "web_search"}]` 时才会触发——Chat Completions 的搜索开关参数会被静默忽略。本插件走 Responses 协议，并解析 `web_search_call` 块里的结构化来源（`action.sources`，以及 DeepSeek 的 `open_page` `action.url`）与 `url_citation` 注解为 seam 标准的引用来源。注意 DeepSeek 官方 Responses 端点对 `deepseek-flash` 会静默忽略内置 `web_search` 工具（需要 DeepSeek 联网搜索时请用 `anthropic-messages` 模式）；`deepseek-v4-pro` 会真的执行搜索，但只回 `open_page` 的 URL、不给 `action.sources`。
 
 > **为什么要 Anthropic Messages？** 官方 `deepseek-official` 提供方说的是 DeepSeek 的 Anthropic 兼容端点，但指不到别处。`anthropic-messages` 模式在本插件内复刻了该协议（含 `x-api-key` + `Bearer` 双认证头，以及用 `citations[].cited_text` 关联出的 snippet），已有 `DEEPSEEK_API_KEY` 的部署可直接沿用，同时端点、模型、工具预算与凭据都变得可配置，并继承本插件的 dispatcher 免疫响应解码。
 
@@ -147,7 +147,7 @@ pnpm run test        # 服务端测试
       对话 LLM 基于搜索结果作答
 ```
 
-- **responses**：每次搜索是一次 Responses API 调用（完整的一轮模型推理）。结果返回去重后的 `sources[]`（url + `url_citation` 注解提供的可选标题，另有智谱网关随 `web_search_call.results[]` 附带的 title/snippet 兜底补全）以及模型生成的 `content`。响应中若没有任何 `web_search_call` 块，则以 `WEB_PROVIDER_ERROR` 响亮失败——绝不做从文本里扒链接的降级。
+- **responses**：每次搜索是一次 Responses API 调用（完整的一轮模型推理）。来源按网关实际给出的形状收集并去重：`web_search_call.action.sources[]`（Qwen/OpenAI 形状）、`action.type: "open_page"` 的 `action.url`（DeepSeek 形状）、`url_citation` 注解的 URL（同时为上述来源提供标题），以及智谱网关随 `web_search_call.results[]` 附带的 title/snippet 兜底补全。模型生成的答案成为 `content`。判定依据是**搜索证据**而非来源数量：响应里有 `web_search_call` 块或引用注解就算成功——DeepSeek 的 Responses 端点会执行搜索却完全不给 `action.sources[]`；两者都没有时以 `WEB_PROVIDER_ERROR` 响亮失败，绝不把模型凭自身知识写出的文本当成搜索结果（实测 2026-10-13：DeepSeek 官方 Responses 端点对 `deepseek-flash` 静默忽略内置 `web_search` 工具）。
 - **anthropic-messages**：每次搜索是一次 Anthropic Messages 调用，带原生 `web_search_20250305` 服务端工具。`web_search_tool_result` 块成为去重的 `sources[]`（`url`、可选 `title`、`page_age` → `publishedAt`），`snippet` 由响应的 `citations[].cited_text` 关联得到。提供方自己的文本不作为 `content` 返回（与官方提供方一致）。报告工具失败的 result 块（`max_uses_exceeded`、`too_many_requests` 等）会带出该错误码而不是笼统的 unprocessable body；没有任何 result 块的响应以 `WEB_PROVIDER_ERROR` 响亮失败。
 - **zhipu-web-search**：`search_result[]` 直接映射为去重的 `sources[]`（url + title），并取前至多八条「标题 + 摘要」拼接为 `content` 速览。空结果是合法结果，返回空 `sources[]` 而非报错。
 - **zhipu-chat-search**：`choices[0].message.content` 即融合回答（`content`），工具声明的 `search_result: true` 让端点附带来源详情，从消息级/根级 `web_search` 字段防御式解析为 `sources[]`；有回答而无来源详情同样可用。

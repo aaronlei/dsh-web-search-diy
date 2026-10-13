@@ -5,6 +5,24 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`responses` mode decides success by search evidence, not by source count** —
+  a live probe against DeepSeek's Responses endpoint (2026-10-13) showed the
+  gateway running the search while returning `web_search_call` blocks with no
+  `action.sources[]` at all: `deepseek-v4-pro` reports `{type: "search",
+  queries}` plus one `{type: "open_page", url}` per visited page and leaves
+  `message.annotations` empty, so every real DeepSeek search used to fail with
+  `WEB_PROVIDER_ERROR`. The mapper now collects sources from `action.sources[]`,
+  from `open_page` `action.url` (stripping the internal `#ws_call_id=…`
+  fragment), from `results[]`, and from `url_citation` annotations, and treats a
+  `web_search_call` block or a citation as proof the search ran. A response with
+  neither still fails loudly: `deepseek-flash` on the same endpoint silently
+  ignores `tools: [{type: "web_search"}]` and answers from its own knowledge,
+  which is a configuration problem rather than a search result.
+
 ## [1.0.2] - 2026-10-09
 
 ### Changed
