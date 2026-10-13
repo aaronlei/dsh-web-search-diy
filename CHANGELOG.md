@@ -22,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   neither still fails loudly: `deepseek-flash` on the same endpoint silently
   ignores `tools: [{type: "web_search"}]` and answers from its own knowledge,
   which is a configuration problem rather than a search result.
+- **`responses` mode returns the final answer, not the progress commentary** —
+  Zhipu's Responses endpoint (verified live 2026-10-13) emits one `message` per
+  progress step ("The first search didn't return relevant results, so let me
+  refine the query:") before the final answer, and the mapper used to keep the
+  first `output_text`. It now keeps the last non-empty one, so `content` carries
+  the answer. Zhipu's Anthropic-compatible endpoint is unaffected by this fix
+  and still fails loudly: it accepts `web_search_20250305` but runs no search
+  (`usage.server_tool_use.web_search_requests: 0`).
 
 ### Added
 

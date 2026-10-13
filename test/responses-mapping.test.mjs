@@ -14,6 +14,15 @@
  *   `web_search_call` block (with or without sources) as proof the search ran.
  *   The same endpoint silently ignores `tools:[{type:"web_search"}]` for
  *   `deepseek-flash`, whose answer without any search evidence stays an error.
+ * - Zhipu's Responses endpoint (verified live 2026-10-13) sends
+ *   `web_search_call.action.sources[]` together with `results[]`, and is the
+ *   only gateway seen emitting progress messages ("The first search didn't
+ *   return relevant results, so let me refine the query:") as their own
+ *   `message` items before the final answer — the mapper keeps the last
+ *   `output_text` as `content` so the running commentary is not returned as the
+ *   answer. Zhipu's Anthropic-compatible endpoint accepts `web_search_20250305`
+ *   but runs no search (`usage.server_tool_use.web_search_requests: 0`), so the
+ *   `anthropic-messages` mode fails loudly there instead of passing prose on.
  * - The two `paas/v4` Zhipu modes attach a `request_id` (6-64 chars, UUID) for
  *   platform-side correlation; the Response API schema has no such field.
  * - `require_search` (zhipu-chat-search only) rides the tool object when on
@@ -170,6 +179,19 @@ describe("mapResponsesResponse: sources beyond action.sources[]", () => {
 	it("fails on a response with neither search evidence nor answer text", () => {
 		assert.throws(() => mapResponsesResponse({ output: [] }), /neither a web_search_call block, citations, nor answer text/u);
 		assert.throws(() => mapResponsesResponse({ output: [{ type: "message", content: [{ type: "output_text", text: "   " }] }] }), /neither a web_search_call block, citations, nor answer text/u);
+	});
+
+	it("keeps the final answer when the gateway emits progress messages first", () => {
+		const result = mapResponsesResponse({
+			output: [
+				{ type: "web_search_call", status: "completed", action: { type: "search", queries: ["q"], sources: [{ type: "url", url: "https://z.example/a" }] } },
+				{ type: "message", status: "completed", content: [{ type: "output_text", text: "The first search didn't return relevant results, so let me refine the query:" }] },
+				{ type: "web_search_call", status: "completed", action: { type: "open_page", url: "https://z.example/b" } },
+				{ type: "message", status: "completed", content: [{ type: "output_text", text: "最终答案" }] }
+			]
+		});
+		assert.equal(result.content, "最终答案");
+		assert.deepEqual(result.sources, [{ url: "https://z.example/a" }, { url: "https://z.example/b" }]);
 	});
 
 	it("ignores malformed source entries", () => {
