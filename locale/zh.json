@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "网页搜索 (dsh-web-search-diy)",
+    "description": "把内置 web_search 工具接到四种可选协议：OpenAI 兼容 Responses、Anthropic 兼容 Messages、智谱 Web Search 与 Chat Search，返回结构化引用来源。"
+  }
+}

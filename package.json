@@ -2,6 +2,7 @@
   "name": "dsh-web-search-diy",
   "version": "1.0.2",
   "description": "DSH web search provider with four selectable protocols: any OpenAI-compatible Responses API gateway exposing the native web_search tool, DeepSeek's Anthropic-compatible Messages API with the native web_search_20250305 server tool, Zhipu's Web Search API (basic retrieval), and Zhipu's Web Search in Chat (answer augmentation). Registers a ctx.web search provider and overrides the shared searchProvider to it; UI copy follows the app language (zh / en).",
+  "icon": "./icon.svg",
   "license": "MIT",
   "author": "aaronlei",
   "publishConfig": {
@@ -19,6 +20,8 @@
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
     "./package.json": "./package.json"
   },
   "dependencies": {
@@ -42,6 +45,8 @@
     "lib",
     "!lib/**/*.map",
     "cordis.patch.yml",
+    "icon.svg",
+    "locale/*.json",
     "LICENSE",
     "README.md",
     "README.zh.md"

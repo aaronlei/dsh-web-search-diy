@@ -23,6 +23,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ignores `tools: [{type: "web_search"}]` and answers from its own knowledge,
   which is a configuration problem rather than a search result.
 
+### Added
+
+- **Plugin icon** — `icon.svg` reuses the globe dsh itself renders for the
+  `web_search` activity (`IconGlobeOutlineRegular` in
+  `@deepseek-ai/dsh-client-ui-primitives`, MIT, Copyright (c) 2026 DeepSeek),
+  declared through `package.json`'s `icon` field and the `./icon` export so the
+  plugin list and detail page stop showing the default artwork.
+- **Localized plugin metadata** — `locale/en.json` and `locale/zh.json` carry
+  `meta.title` / `meta.description`, so the plugin list and its detail page
+  follow the app language (Settings → Language) instead of falling back to the
+  English `package.json` description.
+
 ## [1.0.2] - 2026-10-09
 
 ### Changed
