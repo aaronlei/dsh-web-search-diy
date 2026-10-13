@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.1.0] - 2026-10-13
 
 ### Fixed
 
@@ -32,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Anthropic-compatible endpoint is unaffected by this fix and still fails loudly:
   it accepts `web_search_20250305` but runs no search
   (`usage.server_tool_use.web_search_requests: 0`).
+- **The `user-agent` header carries the released version** — the attribution
+  header was still `dsh-web-search-diy/1.0.2` after the package had reached
+  1.1.0; it now reads `1.1.0`, matching `package.json`.
 
 ### Added
 
@@ -128,6 +131,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   surface must still fail loudly). The `responses` protocol paragraphs continue
   to describe the expanded effort set and the automatic retry instead of the old
   `low`/`high`-only wording.
+- **Version 1.1.0, and both READMEs rebuilt for it** — the changes above ship as
+  1.1.0, and the two READMEs now describe only what this release implements
+  (protocol table, per-mode defaults, a live-verification matrix, the
+  configuration keys, and the request flow). The change-history narration is
+  gone, the files carry shields.io badges (npm / license / node / protocol count
+  / dsh-plugin) plus the official "powered by dsh" badge, and each links to the
+  other through a language switcher. The plugin-list locale strings, the
+  `package.json` description, and the configuration page's endpoint and
+  credential hints were aligned with the same wording; the Anthropic protocol
+  row now names DeepSeek as the default backend with Anthropic and Kimi beside
+  it.
 
 ## [1.0.2] - 2026-10-09
 
