@@ -105,6 +105,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the configuration page's endpoint hint carries the guidance instead, and the
   README protocol table no longer offers Qwen Token Plan as the Responses
   example (Kimi's `https://api.moonshot.cn/v1` replaces it).
+- **Docs stop presenting Qwen as a Responses backend** — the module header, the
+  README default-value table (now with a warning block) and the `responses`
+  protocol paragraph state that the shipped default endpoint is Qwen Token
+  Plan's *OpenAI-compatible* domain and that Model Studio publishes no Responses
+  surface; Kimi's `https://api.moonshot.cn/v1` and OpenAI are named as the
+  verified Responses endpoints, and Qwen is pointed at the `anthropic-messages`
+  mode. Those paragraphs now also describe the expanded effort set and the
+  automatic retry instead of the old `low`/`high`-only wording.
 
 ## [1.0.2] - 2026-10-09
 
