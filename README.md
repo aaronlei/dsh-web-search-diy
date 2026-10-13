@@ -8,8 +8,8 @@ A **web search provider plugin** for the **DeepSeek Harness (DSH)** that backs t
 
 | `mode` | Protocol and request | Backend |
 |---|---|---|
-| `responses` (default) | OpenAI-compatible **Responses API** — `POST /responses` with `tools: [{ type: "web_search" }]` | Qwen Token Plan (the default example), OpenAI, any compatible gateway exposing the Responses surface |
-| `anthropic-messages` | **Anthropic-compatible Messages API** — `POST /messages` with the native `web_search_20250305` server tool | DeepSeek's official Anthropic endpoint (a drop-in for the shipped provider), any Anthropic-compatible gateway |
+| `responses` (default) | OpenAI-compatible **Responses API** — `POST /responses` with `tools: [{ type: "web_search" }]` | OpenAI, Kimi (`https://api.moonshot.cn/v1`, verified), or any gateway that **really implements `/responses`**; Model Studio (Qwen) publishes no Responses surface |
+| `anthropic-messages` | **Anthropic-compatible Messages API** — `POST /messages` with the native `web_search_20250305` server tool | DeepSeek's official Anthropic endpoint (a drop-in for the shipped provider), Kimi (`https://api.moonshot.cn/anthropic`, verified), any Anthropic-compatible gateway |
 | `zhipu-web-search` | Zhipu **Web Search API** (basic retrieval) — `POST /web_search`, no model turn | Zhipu open platform; raw structured results |
 | `zhipu-chat-search` | Zhipu **Web Search in Chat** (answer augmentation) — `POST /chat/completions` with the `web_search` tool | Zhipu open platform; retrieval fused into a grounded answer |
 

@@ -92,6 +92,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   publishes no Responses API at all: its Base URL overview lists only
   OpenAI-compatible (`.../compatible-mode/v1`) and Anthropic-compatible
   (`.../apps/anthropic`) endpoints, and each plan's key must match its domain.
+- **A missing `/responses` surface is diagnosed instead of just reported** — a
+  404 from the `responses` endpoint now states that the base URL exposes no
+  `/responses` path and names the protocol that does work, because Model Studio
+  (Qwen) publishes no Responses endpoint. Every Qwen credential on hand was
+  tried against `token-plan` (CN and SG), `dashscope`, `coding` (CN and intl)
+  and `portal.qwen.ai`, and all answered 401 — the stored token is expired — so
+  the configuration page's endpoint hint carries the guidance instead, and the
+  README protocol table no longer offers Qwen Token Plan as the Responses
+  example (Kimi's `https://api.moonshot.cn/v1` replaces it).
 
 ## [1.0.2] - 2026-10-09
 

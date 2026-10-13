@@ -419,4 +419,14 @@ describe("reasoning-effort fallback", () => {
 			globalThis.fetch = realFetch;
 		}
 	});
+
+	it("explains a 404 as a missing Responses surface", async () => {
+		const calls = stubFetchSequence([{ status: 404, body: {} }]);
+		try {
+			await assert.rejects(provider().search({ query: "q" }), /exposes no \/responses path/u);
+			assert.equal(calls.length, 1);
+		} finally {
+			globalThis.fetch = realFetch;
+		}
+	});
 });

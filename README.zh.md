@@ -8,8 +8,8 @@
 
 | `mode` | 协议与请求 | 后端 |
 |---|---|---|
-| `responses`（默认） | OpenAI 兼容 **Responses API**——`POST /responses`，带 `tools: [{ type: "web_search" }]` | 千问 Token Plan（默认示例）、OpenAI、任意实现了 Responses 接口的兼容网关 |
-| `anthropic-messages` | **Anthropic 兼容 Messages API**——`POST /messages`，带原生 `web_search_20250305` 服务端工具 | DeepSeek 官方 Anthropic 端点（官方插件的等价替代）、任意 Anthropic 兼容网关 |
+| `responses`（默认） | OpenAI 兼容 **Responses API**——`POST /responses`，带 `tools: [{ type: "web_search" }]` | OpenAI 官方、Kimi（`https://api.moonshot.cn/v1`，实测）、或任意**真的实现了 `/responses`** 的兼容网关；百炼/千问不提供 Responses 接口 |
+| `anthropic-messages` | **Anthropic 兼容 Messages API**——`POST /messages`，带原生 `web_search_20250305` 服务端工具 | DeepSeek 官方 Anthropic 端点（官方插件的等价替代）、Kimi（`https://api.moonshot.cn/anthropic`，实测）、任意 Anthropic 兼容网关 |
 | `zhipu-web-search` | 智谱 **基础检索（Web Search API）**——`POST /web_search`，无模型回合 | 智谱开放平台；纯结构化结果 |
 | `zhipu-chat-search` | 智谱 **问答增强（Web Search in Chat）**——`POST /chat/completions`，带 `web_search` 工具 | 智谱开放平台；检索与生成融合回答 |
 
