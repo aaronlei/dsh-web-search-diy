@@ -62,6 +62,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   at all still fails. `page_age`, a human-readable date in the official API
   ("April 30, 2025"), is normalized to the ISO-8601 `publishedAt` the seam
   promises, and dropped when it carries no parsable date.
+- **Kimi's `action.sources[].title` is kept** — Kimi's Responses API titles each
+  entry of `web_search_call.action.sources[]`, which the mapper used to drop (it
+  kept only the url). The `url_citation` annotation title still wins, and
+  `results[].title` remains the last fallback.
 
 ## [1.0.2] - 2026-10-09
 

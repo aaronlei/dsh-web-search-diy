@@ -218,6 +218,34 @@ describe("mapResponsesResponse: sources beyond action.sources[]", () => {
 		assert.equal(result.content, "最终答案");
 	});
 
+	it("keeps the title Kimi attaches to action.sources[] items", () => {
+		const result = mapResponsesResponse({
+			output: [
+				{
+					type: "web_search_call",
+					status: "completed",
+					action: {
+						type: "search",
+						query: "top news",
+						sources: [{ type: "url", url: "https://k.example/a", title: "Kimi 标题" }]
+					}
+				},
+				{ type: "message", status: "completed", content: [{ type: "output_text", text: "答案" }] }
+			]
+		});
+		assert.deepEqual(result.sources, [{ url: "https://k.example/a", title: "Kimi 标题" }]);
+	});
+
+	it("prefers the url_citation annotation title over the sources[] title", () => {
+		const result = mapResponsesResponse({
+			output: [
+				{ type: "web_search_call", action: { type: "search", sources: [{ type: "url", url: "https://k.example/a", title: "来源标题" }] } },
+				{ type: "message", content: [{ type: "output_text", text: "答案", annotations: [{ type: "url_citation", url: "https://k.example/a", title: "注解标题" }] }] }
+			]
+		});
+		assert.equal(result.sources[0].title, "注解标题");
+	});
+
 	it("ignores malformed source entries", () => {
 		const result = mapResponsesResponse({
 			output: [
