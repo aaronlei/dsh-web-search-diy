@@ -79,7 +79,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   over one of those knobs, the provider retries once without it, sacrificing
   `reasoning.effort` → `output_config` → `thinking` → `reasoning_effort` in that
   order, so an unsupported preference degrades to the endpoint's own default
-  instead of failing the whole search.
+  instead of failing the whole search. Verified live against Kimi's Responses
+  endpoint: `reasoning.effort: "minimal"` (Kimi knows only `low`/`high`/`max`)
+  came back 400 and the automatic retry without the knob returned 200 with 20
+  sources, while the same bogus value on Kimi's Messages endpoint is accepted
+  silently — that `output_config` is lenient about unknown levels.
 - **Kimi verified live on both protocols** — `responses` mode works with
   `https://api.moonshot.cn/v1` (kimi-k3): `{"type": "web_search"}` runs, `include`
   returns 12–20 titled sources, and the answer arrives as `content`. Contrary to
