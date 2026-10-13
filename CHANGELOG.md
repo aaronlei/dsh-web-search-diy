@@ -66,6 +66,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   entry of `web_search_call.action.sources[]`, which the mapper used to drop (it
   kept only the url). The `url_citation` annotation title still wins, and
   `results[].title` remains the last fallback.
+- **Reasoning-knob differences are absorbed instead of guessed** — the official
+  level sets differ per model: Zhipu's GLM-5.3 accepts only `max`/`high`/`low`
+  and rejects `thinking: disabled` outright (verified live: HTTP 400,
+  "该模型始终思考，不支持关闭思考；请使用 low、high 或 max。", for both
+  `reasoning_effort: medium` and `thinking: disabled`, on its chat *and*
+  Responses endpoints), Kimi knows `low`/`high`/`max`, and DeepSeek silently
+  accepts levels it does not use. `responsesReasoningEffort` now offers the full
+  official OpenAI set (`minimal`/`low`/`medium`/`high`/`xhigh`), and the new
+  `anthropicEffort` exposes Anthropic's `output_config.effort`
+  (`low`/`medium`/`high`/`xhigh`/`max`). When an endpoint rejects the request
+  over one of those knobs, the provider retries once without it, sacrificing
+  `reasoning.effort` → `output_config` → `thinking` → `reasoning_effort` in that
+  order, so an unsupported preference degrades to the endpoint's own default
+  instead of failing the whole search.
 
 ## [1.0.2] - 2026-10-09
 

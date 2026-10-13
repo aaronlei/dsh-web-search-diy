@@ -17,7 +17,8 @@
  * 卡片通过 host 的 /api/web-search-diy/config 端点读写配置：
  *   - mode / baseURL / apiKeyEnv / model / maxOutputTokens 及协议专属选项
  *     （responses: responsesReasoningEffort / responsesIncludeSources；
- *     anthropic-messages: apiVersion / maxUses / anthropicThinking；智谱:
+ *     anthropic-messages: apiVersion / maxUses / anthropicThinking /
+ *     anthropicEffort；智谱:
  *     searchEngine / count / searchRecencyFilter / contentSize /
  *     searchDomainFilter / searchIntent / requireSearch / searchPrompt）
  *     → 存 $DSH_HOME/dsh-web-search-diy.json
@@ -57,12 +58,13 @@ interface Draft {
 	apiVersion: string;
 	maxUses: string;
 	anthropicThinking: "default" | "disabled";
+	anthropicEffort: "" | "low" | "medium" | "high" | "xhigh" | "max";
 	searchEngine: "search_std" | "search_pro" | "search_pro_sogou" | "search_pro_quark";
 	count: string;
 	searchRecencyFilter: "noLimit" | "oneDay" | "oneWeek" | "oneMonth" | "oneYear";
 	contentSize: "medium" | "high";
 	reasoningEffort: "low" | "high" | "max";
-	responsesReasoningEffort: "" | "low" | "high";
+	responsesReasoningEffort: "" | "minimal" | "low" | "medium" | "high" | "xhigh";
 	responsesIncludeSources: boolean;
 	searchDomainFilter: string;
 	searchIntent: boolean;
@@ -82,6 +84,7 @@ interface Bucket {
 	apiVersion?: string;
 	maxUses?: number;
 	anthropicThinking?: Draft["anthropicThinking"];
+	anthropicEffort?: Exclude<Draft["anthropicEffort"], "">;
 	searchEngine?: Draft["searchEngine"];
 	count?: number;
 	searchRecencyFilter?: Draft["searchRecencyFilter"];
@@ -249,7 +252,7 @@ const zh: Record<string, string> = {
 	maxUses: "搜索次数上限 maxUses",
 	maxUsesHint: "仅 DeepSeek 官方模式生效；单次请求内 web_search 服务端工具最多可调用几次，官方默认 5；留空保存恢复默认。",
 	anthropicThinking: "思考模式",
-	anthropicThinkingHint: "仅 DeepSeek 官方模式生效；该端点忽略推理档位与思考预算（实测）。关闭思考会跳过推理过程并省下思考 token（思考越长省得越多，短查询时延差别不大）。",
+	anthropicThinkingHint: "仅 Anthropic 兼容模式生效；该端点忽略推理档位与思考预算（实测）。关闭思考会跳过推理过程并省下思考 token（思考越长省得越多，短查询时延差别不大）。部分模型始终思考（如智谱 GLM-5.3），传 disabled 会被 400 拒；插件会自动去掉该开关重试一次。",
 	searchEngine: "搜索引擎 searchEngine",
 	searchEngineHint: "仅智谱模式生效；不同引擎单价不同。",
 	engineStd: "search_std（智谱自研 · 基础）",
@@ -273,13 +276,18 @@ const zh: Record<string, string> = {
 	sizeHigh: "high（详细）",
 	reasoningEffort: "思考强度 reasoningEffort",
 	reasoningEffortHint: "仅问答增强模式生效；low 让思考型模型（如 GLM-5.3-Flash）保持快速，复杂任务可调高。",
+	effortMinimal: "minimal（最省）",
 	effortLow: "low（快速）",
+	effortMedium: "medium（均衡）",
 	effortHigh: "high（增强）",
+	effortXhigh: "xhigh（超强）",
 	effortMax: "max（深度）",
 	effortDefault: "默认（随模型，不传档位）",
 	thinkingOff: "关闭思考（更快、更省）",
 	responsesReasoningEffort: "推理档位 reasoning.effort",
-	responsesReasoningEffortHint: "仅 OpenAI 兼容模式生效；透传 OpenAI 标准 reasoning.effort。默认不传，随大模型自身模式；网关不支持该参数时请保持默认。",
+	responsesReasoningEffortHint: "仅 OpenAI 兼容模式生效；透传 OpenAI 标准 reasoning.effort，这里列出的是官方全集。档位因模型而异：模型不认识所选档位会直接拒（400），这时插件自动去掉该档位重试一次、改用网关默认档，不会让整次搜索失败。默认不传，随模型自身模式。",
+	anthropicEffort: "思考档位 output_config.effort",
+	anthropicEffortHint: "仅 Anthropic 兼容模式生效；透传官方 output_config.effort。low/medium/high 多数模型都认，xhigh 与 max 只有部分模型支持；被拒（400）时插件自动去掉该档位重试一次。默认不传，随模型自身档位。",
 	responsesIncludeSources: "请求完整来源 include",
 	responsesIncludeSourcesHint: "仅 OpenAI 兼容模式生效；发送 include: [\"web_search_call.action.sources\"] 取回完整来源列表——官方 API 里该字段是 include-only，不传就只剩引用注解里的少量来源。默认开启；网关拒绝未知参数时再关闭。",
 	searchDomainFilter: "域名白名单 searchDomainFilter",
@@ -331,7 +339,7 @@ const en: Record<string, string> = {
 	maxUses: "Search uses per request (maxUses)",
 	maxUsesHint: "DeepSeek official mode only; how many times the web_search server tool may run in one request, default 5. Saving it blank restores the default.",
 	anthropicThinking: "Thinking mode",
-	anthropicThinkingHint: "DeepSeek official mode only. The endpoint ignores reasoning-effort and thinking budgets (measured). Turning thinking off skips the reasoning pass and saves its tokens (the longer the reasoning, the bigger the saving; short queries barely differ).",
+	anthropicThinkingHint: "Anthropic-compatible mode only. The endpoint ignores reasoning-effort and thinking budgets (measured). Turning thinking off skips the reasoning pass and saves its tokens (the longer the reasoning, the bigger the saving; short queries barely differ). Some models always think (Zhipu's GLM-5.3), where `disabled` is rejected with 400; the provider then retries once without the switch.",
 	searchEngine: "Search engine",
 	searchEngineHint: "Zhipu modes only; engines differ in per-call pricing.",
 	engineStd: "search_std (Zhipu built-in, basic)",
@@ -355,13 +363,18 @@ const en: Record<string, string> = {
 	sizeHigh: "high (detailed)",
 	reasoningEffort: "Thinking effort",
 	reasoningEffortHint: "Chat mode only; low keeps thinking-only models (e.g. GLM-5.3-Flash) fast, raise it for harder tasks.",
+	effortMinimal: "minimal (cheapest)",
 	effortLow: "low (fast)",
+	effortMedium: "medium (balanced)",
 	effortHigh: "high (enhanced)",
-	effortMax: "max (deep)",
+	effortXhigh: "xhigh (extra)",
+	effortMax: "max (deepest)",
 	effortDefault: "Default (model's own, no knob)",
 	thinkingOff: "Off (faster, cheaper)",
 	responsesReasoningEffort: "Reasoning effort (reasoning.effort)",
-	responsesReasoningEffortHint: "OpenAI-compatible mode only; passes the OpenAI-standard reasoning.effort. Default sends nothing and follows the model's own mode; keep the default if your gateway rejects the parameter.",
+	responsesReasoningEffortHint: "OpenAI-compatible mode only; passes the OpenAI-standard reasoning.effort — this is the official set. Which levels exist is per-model: a level the model does not know is rejected (400), and the provider then retries once without it, using the endpoint's own default instead of failing the whole search. Unset sends nothing and follows the model's own mode.",
+	anthropicEffort: "Thinking effort (output_config.effort)",
+	anthropicEffortHint: "Anthropic-compatible mode only; passes the official output_config.effort. Most models know low/medium/high; xhigh and max exist on fewer, and a rejected level makes the provider retry once without it. Unset sends nothing and follows the model's own default.",
 	responsesIncludeSources: "Request full sources (include)",
 	responsesIncludeSourcesHint: "OpenAI-compatible mode only; sends include: [\"web_search_call.action.sources\"] so the response carries the complete source list — the field is include-only in the official API, and without it only the few citation annotations remain. On by default; turn it off if your gateway rejects the parameter.",
 	searchDomainFilter: "Domain allowlist",
@@ -523,6 +536,7 @@ function normalizeBucket(bucket: Bucket): Omit<Draft, "mode"> {
 		apiVersion: bucket.apiVersion ?? "",
 		maxUses: bucket.maxUses != null ? String(bucket.maxUses) : "",
 		anthropicThinking: bucket.anthropicThinking ?? "default",
+		anthropicEffort: bucket.anthropicEffort ?? "",
 		searchEngine: bucket.searchEngine ?? "search_std",
 		count: bucket.count != null ? String(bucket.count) : "",
 		searchRecencyFilter: bucket.searchRecencyFilter ?? "noLimit",
@@ -574,7 +588,7 @@ function draftForMode(mode: Mode, buckets: Record<string, Bucket> | undefined): 
 	};
 }
 /** Draft keys compared against the saved snapshot to flag "unsaved". */
-const DRAFT_KEYS: readonly (keyof Draft)[] = ["mode", "baseURL", "apiKeyEnv", "model", "maxOutputTokens", "apiVersion", "maxUses", "anthropicThinking", "searchEngine", "count", "searchRecencyFilter", "contentSize", "reasoningEffort", "responsesReasoningEffort", "responsesIncludeSources", "searchDomainFilter", "searchIntent", "requireSearch", "searchPrompt"];
+const DRAFT_KEYS: readonly (keyof Draft)[] = ["mode", "baseURL", "apiKeyEnv", "model", "maxOutputTokens", "apiVersion", "maxUses", "anthropicThinking", "anthropicEffort", "searchEngine", "count", "searchRecencyFilter", "contentSize", "reasoningEffort", "responsesReasoningEffort", "responsesIncludeSources", "searchDomainFilter", "searchIntent", "requireSearch", "searchPrompt"];
 /**
  * Official endpoint, model, and credential reference per protocol family,
  * highest priority first: these are settled facts, not something the user
@@ -625,6 +639,7 @@ function emptyDraft(): Draft {
 		apiVersion: "",
 		maxUses: "",
 		anthropicThinking: "default",
+		anthropicEffort: "",
 		searchEngine: "search_std",
 		count: "",
 		searchRecencyFilter: "noLimit",
@@ -966,6 +981,24 @@ function ConfigPage(props: { t: (key: string) => string }) {
 						setDraft((current) => ({ ...current, anthropicThinking: value as Draft["anthropicThinking"] }));
 					}}
 				/> : null,
+				draft.mode === "anthropic-messages" ? <ChoiceField
+					key="anthropicEffort"
+					id="plugin-config-web-search-diy-anthropic-effort"
+					label={t("anthropicEffort")}
+					hint={t("anthropicEffortHint")}
+					value={draft.anthropicEffort}
+					options={[
+						{ value: "", label: t("effortDefault") },
+						{ value: "low", label: t("effortLow") },
+						{ value: "medium", label: t("effortMedium") },
+						{ value: "high", label: t("effortHigh") },
+						{ value: "xhigh", label: t("effortXhigh") },
+						{ value: "max", label: t("effortMax") }
+					]}
+					onEdit={(value) => {
+						setDraft((current) => ({ ...current, anthropicEffort: value as Draft["anthropicEffort"] }));
+					}}
+				/> : null,
 				draft.mode === "responses" ? <ChoiceField
 					key="responsesReasoningEffort"
 					id="plugin-config-web-search-diy-responses-reasoning-effort"
@@ -974,8 +1007,11 @@ function ConfigPage(props: { t: (key: string) => string }) {
 					value={draft.responsesReasoningEffort}
 					options={[
 						{ value: "", label: t("effortDefault") },
+						{ value: "minimal", label: t("effortMinimal") },
 						{ value: "low", label: t("effortLow") },
-						{ value: "high", label: t("effortHigh") }
+						{ value: "medium", label: t("effortMedium") },
+						{ value: "high", label: t("effortHigh") },
+						{ value: "xhigh", label: t("effortXhigh") }
 					]}
 					onEdit={(value) => {
 						setDraft((current) => ({ ...current, responsesReasoningEffort: value as Draft["responsesReasoningEffort"] }));

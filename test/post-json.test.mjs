@@ -39,6 +39,7 @@ function baseOptions(overrides = {}) {
 		apiVersion: "2023-06-01",
 		maxUses: 5,
 		anthropicThinking: "default",
+		anthropicEffort: "",
 		searchEngine: "search_std",
 		count: 10,
 		searchRecencyFilter: "noLimit",
@@ -73,6 +74,21 @@ function stubFetch(respond) {
 
 function jsonResponse(body, init = {}) {
 	return new Response(gzipSync(Buffer.from(JSON.stringify(body))), init);
+}
+
+/**
+ * Replace global fetch with a stub replaying one reply per call: an entry is
+ * either a plain body (HTTP 200) or `{status, body}`. The last entry repeats.
+ */
+function stubFetchSequence(replies) {
+	const calls = [];
+	globalThis.fetch = async (url, init) => {
+		calls.push({ url, body: JSON.parse(init.body) });
+		const reply = replies[Math.min(calls.length - 1, replies.length - 1)];
+		const status = reply.status ?? 200;
+		return new Response(JSON.stringify(reply.body ?? reply), { status });
+	};
+	return calls;
 }
 
 const zhipuPayload = {
@@ -318,5 +334,50 @@ describe("anthropic-messages mode", () => {
 			{ url: "https://e.example/a", title: "A", publishedAt: "2025-04-30" },
 			{ url: "https://e.example/b", title: "B" }
 		]);
+	});
+
+	it("sends output_config.effort when configured", async () => {
+		const calls = stubFetch(() => jsonResponse(anthropicPayload));
+		try {
+			await anthropicProvider({ anthropicEffort: "high" }).search({ query: "q" });
+			assert.deepEqual(JSON.parse(calls[0].init.body).output_config, { effort: "high" });
+		} finally {
+			globalThis.fetch = realFetch;
+		}
+	});
+
+	it("retries without the thinking switch when the model always thinks", async () => {
+		const calls = stubFetchSequence([
+			{ status: 400, body: { type: "error", error: { type: "invalid_request_error", message: "[1210][该模型始终思考，不支持关闭思考；请使用 low、high 或 max。]" } } },
+			anthropicPayload
+		]);
+		try {
+			const result = await anthropicProvider({ anthropicThinking: "disabled" }).search({ query: "q" });
+			assert.equal(calls.length, 2);
+			assert.deepEqual(calls[0].body.thinking, { type: "disabled" });
+			assert.equal(calls[1].body.thinking, void 0);
+			assert.equal(result.sources.length, 2);
+		} finally {
+			globalThis.fetch = realFetch;
+		}
+	});
+
+	it("sacrifices effort before thinking when both are rejected", async () => {
+		const calls = stubFetchSequence([
+			{ status: 400, body: { error: { message: "unsupported effort level" } } },
+			{ status: 400, body: { error: { message: "该模型始终思考，不支持关闭思考；请使用 low、high 或 max。" } } },
+			{ content: [{ type: "web_search_tool_result", content: [{ type: "web_search_result", url: "https://d.example/a" }] }] }
+		]);
+		try {
+			const result = await anthropicProvider({ anthropicThinking: "disabled", anthropicEffort: "xhigh" }).search({ query: "q" });
+			assert.equal(calls.length, 3);
+			assert.deepEqual(calls[0].body.output_config, { effort: "xhigh" });
+			assert.equal(calls[1].body.output_config, void 0);
+			assert.deepEqual(calls[1].body.thinking, { type: "disabled" });
+			assert.equal(calls[2].body.thinking, void 0);
+			assert.deepEqual(result.sources, [{ url: "https://d.example/a" }]);
+		} finally {
+			globalThis.fetch = realFetch;
+		}
 	});
 });

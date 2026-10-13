@@ -45,6 +45,7 @@ function baseOptions(overrides = {}) {
 		apiVersion: "2023-06-01",
 		maxUses: 5,
 		anthropicThinking: "default",
+		anthropicEffort: "",
 		searchEngine: "search_std",
 		count: 10,
 		searchRecencyFilter: "noLimit",
@@ -70,6 +71,21 @@ function stubFetch(body) {
 	globalThis.fetch = async (url, init) => {
 		calls.push({ url, body: JSON.parse(init.body) });
 		return new Response(JSON.stringify(body));
+	};
+	return calls;
+}
+/**
+ * Replace global fetch with a stub replaying one reply per call: an entry is
+ * either a plain body (HTTP 200) or `{status, body}`. The last entry repeats,
+ * so a retry test can list the rejection and then the accepted reply.
+ */
+function stubFetchSequence(replies) {
+	const calls = [];
+	globalThis.fetch = async (url, init) => {
+		calls.push({ url, body: JSON.parse(init.body) });
+		const reply = replies[Math.min(calls.length - 1, replies.length - 1)];
+		const status = reply.status ?? 200;
+		return new Response(JSON.stringify(reply.body ?? reply), { status });
 	};
 	return calls;
 }
@@ -300,6 +316,22 @@ describe("zhipu paas/v4 request bodies", () => {
 		}
 	});
 
+	it("retries without reasoning_effort when the model rejects that level", async () => {
+		const calls = stubFetchSequence([
+			{ status: 400, body: { error: { code: "1210", message: "该模型始终思考，不支持关闭思考；请使用 low、high 或 max。" } } },
+			{ choices: [{ message: { content: "答案正文", web_search: [{ link: "https://c.example/", title: "来源" }] } }] }
+		]);
+		try {
+			const result = await provider(baseOptions({ mode: "zhipu-chat-search", reasoningEffort: "low" })).search({ query: "q" });
+			assert.equal(calls.length, 2);
+			assert.equal(calls[0].body.reasoning_effort, "low");
+			assert.equal(calls[1].body.reasoning_effort, void 0);
+			assert.deepEqual(result.sources, [{ url: "https://c.example/", title: "来源" }]);
+		} finally {
+			globalThis.fetch = realFetch;
+		}
+	});
+
 	it("sends no request_id in responses mode (the Response API has no such field)", async () => {
 		const calls = stubFetch({
 			output: [
@@ -338,6 +370,51 @@ describe("zhipu paas/v4 request bodies", () => {
 		try {
 			await provider(baseOptions({ responsesIncludeSources: false })).search({ query: "q" });
 			assert.equal(offCalls[0].body.include, void 0);
+		} finally {
+			globalThis.fetch = realFetch;
+		}
+	});
+});
+
+describe("reasoning-effort fallback", () => {
+	const searchPayload = {
+		output: [
+			{ type: "web_search_call", status: "completed", action: { type: "search", query: "q", sources: [{ type: "url", url: "https://q.example/" }] } },
+			{ type: "message", status: "completed", content: [{ type: "output_text", text: "答案" }] }
+		]
+	};
+
+	it("sends any official effort level, not only low and high", async () => {
+		const calls = stubFetch(searchPayload);
+		try {
+			await provider(baseOptions({ responsesReasoningEffort: "xhigh" })).search({ query: "q" });
+			assert.deepEqual(calls[0].body.reasoning, { effort: "xhigh" });
+		} finally {
+			globalThis.fetch = realFetch;
+		}
+	});
+
+	it("retries without the effort knob when the model rejects that level", async () => {
+		const calls = stubFetchSequence([
+			{ status: 400, body: { error: { message: "该模型始终思考，不支持关闭思考；请使用 low、high 或 max。" } } },
+			searchPayload
+		]);
+		try {
+			const result = await provider(baseOptions({ responsesReasoningEffort: "medium" })).search({ query: "q" });
+			assert.equal(calls.length, 2);
+			assert.deepEqual(calls[0].body.reasoning, { effort: "medium" });
+			assert.equal(calls[1].body.reasoning, void 0);
+			assert.equal(result.sources[0].url, "https://q.example/");
+		} finally {
+			globalThis.fetch = realFetch;
+		}
+	});
+
+	it("does not retry a failure that says nothing about a reasoning knob", async () => {
+		const calls = stubFetchSequence([{ status: 429, body: { error: { message: "配额已用尽" } } }]);
+		try {
+			await assert.rejects(provider(baseOptions({ responsesReasoningEffort: "medium" })).search({ query: "q" }), /配额已用尽/u);
+			assert.equal(calls.length, 1);
 		} finally {
 			globalThis.fetch = realFetch;
 		}
