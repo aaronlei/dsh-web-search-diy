@@ -260,9 +260,9 @@ expectEqual(valueOf(atZhipuChatStored.fields, "-api-key-env"), "ZAI_CODING_CN_AP
 const freshCard = await open({ mode: "zhipu-web-search", modes: {} });
 const atResponses = enterMode(freshCard.fields, "responses");
 console.log(`fresh install → responses: keyRef=${valueOf(atResponses.fields, "-api-key-env")} model=${valueOf(atResponses.fields, "-model")} baseURL=${valueOf(atResponses.fields, "-base-url")}`);
-expectEqual(valueOf(atResponses.fields, "-api-key-env"), "QWEN_TOKEN_PLAN_CN_API_KEY", "official reference prefilled");
+expectEqual(valueOf(atResponses.fields, "-api-key-env"), "QWEN_TOKEN_PLAN_API_KEY", "official reference prefilled");
 expectEqual(valueOf(atResponses.fields, "-model"), "deepseek-v4-flash-0731", "official model prefilled");
-expectEqual(valueOf(atResponses.fields, "-base-url"), "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", "official endpoint prefilled");
+expectEqual(valueOf(atResponses.fields, "-base-url"), "https://maas.qianwenaiapi.com/compatible-mode/v1", "official endpoint prefilled");
 
 // Buckets are per mode, not per family: the other Zhipu mode has its own.
 const zhipuOnly = await open({

@@ -241,9 +241,9 @@ const zh: Record<string, string> = {
 	modeZhipuChat: "智谱问答增强（Web Search in Chat）",
 	baseURL: "接口地址 baseURL",
 	baseURLHint: "切换协议时自动填入官方地址；仍可改为任意自定义地址，留空保存即恢复该模式默认地址。DeepSeek 官方模式留空时还会回退到环境变量 DEEPSEEK_SEARCH_BASE_URL。",
-	baseURLHintResponses: "该端点必须真的实现 Responses API（插件会向 {baseURL}/responses 发请求）。OpenAI 官方与 Kimi（https://api.moonshot.cn/v1）可以；百炼/千问只提供 OpenAI 兼容与 Anthropic 兼容两套接口，请改用 anthropic-messages 模式配 https://dashscope.aliyuncs.com/apps/anthropic/v1。",
+	baseURLHintResponses: "该端点必须真的实现 Responses API（插件会向 {baseURL}/responses 发请求），且模型支持内置 web_search 工具。实测可用：千问AI平台 https://maas.qianwenaiapi.com/compatible-mode/v1（默认）、Kimi https://api.moonshot.cn/v1、OpenAI 官方。注意千问的 Anthropic 兼容端点（/apps/anthropic）只支持 Function Call、不执行服务端 web_search，所以千问请用本模式。",
 	apiKeyEnv: "凭据引用 apiKeyEnv",
-	apiKeyEnvHint: "留空则使用当前协议模式的默认引用（OpenAI 兼容：QWEN_TOKEN_PLAN_CN_API_KEY；DeepSeek 官方：DEEPSEEK_API_KEY；智谱：ZAI_CODING_CN_API_KEY，其后兼容历史名 ZHIPU_API_KEY）。切换协议时，属于其他服务商家族的引用会自动换成新协议的默认值，自定义引用名则保留。",
+	apiKeyEnvHint: "留空则使用当前协议模式的默认引用（OpenAI 兼容：QWEN_TOKEN_PLAN_API_KEY；DeepSeek 官方：DEEPSEEK_API_KEY；智谱：ZAI_CODING_CN_API_KEY，其后兼容历史名 ZHIPU_API_KEY）。切换协议时，属于其他服务商家族的引用会自动换成新协议的默认值，自定义引用名则保留。",
 	model: "模型 model",
 	modelHint: "留空使用默认；OpenAI 兼容模式为 deepseek-v4-flash-0731，DeepSeek 官方为 deepseek-flash，智谱问答增强为 glm-5.3-flash（配思考强度 low）。免费档 glm-4.7-flash 经常限流不可用，不建议。",
 	maxOutputTokens: "最大输出 tokens",
@@ -329,9 +329,9 @@ const en: Record<string, string> = {
 	modeZhipuChat: "Zhipu Web Search in Chat (answer augmentation)",
 	baseURL: "Endpoint (baseURL)",
 	baseURLHint: "Auto-filled with the official endpoint on protocol switch; still yours to override — saving it blank restores the mode default. In DeepSeek official mode a blank endpoint also falls back to the DEEPSEEK_SEARCH_BASE_URL environment variable.",
-	baseURLHintResponses: "This endpoint must actually implement the Responses API (the plugin POSTs to {baseURL}/responses). OpenAI and Kimi (https://api.moonshot.cn/v1) do; Model Studio (Qwen) publishes only an OpenAI-compatible and an Anthropic-compatible surface, so use the anthropic-messages mode with https://dashscope.aliyuncs.com/apps/anthropic/v1 there.",
+	baseURLHintResponses: "This endpoint must actually implement the Responses API (the plugin POSTs to {baseURL}/responses) and its model must expose the built-in web_search tool. Verified: Qwen AI Platform https://maas.qianwenaiapi.com/compatible-mode/v1 (the default), Kimi https://api.moonshot.cn/v1, OpenAI. Note that Qwen's Anthropic-compatible surface (/apps/anthropic) supports function calling only and never runs server-side web_search, so Qwen belongs in this mode.",
 	apiKeyEnv: "Credential reference (apiKeyEnv)",
-	apiKeyEnvHint: "Leave blank to use the current mode's default (OpenAI-compatible: QWEN_TOKEN_PLAN_CN_API_KEY; DeepSeek official: DEEPSEEK_API_KEY; Zhipu: ZAI_CODING_CN_API_KEY, then the historical ZHIPU_API_KEY). A reference belonging to another vendor's family follows a protocol switch; a custom name is kept.",
+	apiKeyEnvHint: "Leave blank to use the current mode's default (OpenAI-compatible: QWEN_TOKEN_PLAN_API_KEY; DeepSeek official: DEEPSEEK_API_KEY; Zhipu: ZAI_CODING_CN_API_KEY, then the historical ZHIPU_API_KEY). A reference belonging to another vendor's family follows a protocol switch; a custom name is kept.",
 	model: "Model",
 	modelHint: "Leave blank for the default: deepseek-v4-flash-0731 in OpenAI-compatible mode, deepseek-flash in DeepSeek official mode, glm-5.3-flash (with thinking effort low) in Zhipu chat mode. The free-tier glm-4.7-flash is frequently rate-limited and not recommended.",
 	maxOutputTokens: "Max output tokens",
@@ -601,7 +601,7 @@ const DRAFT_KEYS: readonly (keyof Draft)[] = ["mode", "baseURL", "apiKeyEnv", "m
  * family's own.
  */
 const OFFICIAL_ENDPOINTS: Record<Family, readonly string[]> = {
-	responses: ["https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"],
+	responses: ["https://maas.qianwenaiapi.com/compatible-mode/v1"],
 	"anthropic-messages": ["https://api.deepseek.com/anthropic/v1"],
 	zhipu: ["https://open.bigmodel.cn/api/paas/v4"]
 };
@@ -622,7 +622,7 @@ const OFFICIAL_MODELS: Record<Family, readonly string[]> = {
 	zhipu: ["glm-5.3-flash"]
 };
 const OFFICIAL_KEY_REFS: Record<Family, readonly string[]> = {
-	responses: ["QWEN_TOKEN_PLAN_CN_API_KEY"],
+	responses: ["QWEN_TOKEN_PLAN_API_KEY"],
 	"anthropic-messages": ["DEEPSEEK_API_KEY"],
 	zhipu: ["ZAI_CODING_CN_API_KEY", "ZHIPU_API_KEY"]
 };

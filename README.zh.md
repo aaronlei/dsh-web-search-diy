@@ -8,7 +8,7 @@
 
 | `mode` | 协议与请求 | 后端 |
 |---|---|---|
-| `responses`（默认） | OpenAI 兼容 **Responses API**——`POST /responses`，带 `tools: [{ type: "web_search" }]` | OpenAI 官方、Kimi（`https://api.moonshot.cn/v1`，实测）、或任意**真的实现了 `/responses`** 的兼容网关；百炼/千问不提供 Responses 接口 |
+| `responses`（默认） | OpenAI 兼容 **Responses API**——`POST /responses`，带 `tools: [{ type: "web_search" }]` | 千问AI平台（`https://maas.qianwenaiapi.com/compatible-mode/v1`，默认且 2026-10-13 实测）、OpenAI 官方、Kimi（`https://api.moonshot.cn/v1`，实测）、或任意**真的实现了 `/responses`** 的兼容网关 |
 | `anthropic-messages` | **Anthropic 兼容 Messages API**——`POST /messages`，带原生 `web_search_20250305` 服务端工具 | DeepSeek 官方 Anthropic 端点（官方插件的等价替代）、Kimi（`https://api.moonshot.cn/anthropic`，实测）、任意 Anthropic 兼容网关 |
 | `zhipu-web-search` | 智谱 **基础检索（Web Search API）**——`POST /web_search`，无模型回合 | 智谱开放平台；纯结构化结果 |
 | `zhipu-chat-search` | 智谱 **问答增强（Web Search in Chat）**——`POST /chat/completions`，带 `web_search` 工具 | 智谱开放平台；检索与生成融合回答 |
@@ -17,14 +17,14 @@
 
 | `mode` | `baseURL` | `model` | `apiKeyEnv` | `maxOutputTokens` |
 |---|---|---|---|---|
-| `responses` | `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1` | `deepseek-v4-flash-0731` | `QWEN_TOKEN_PLAN_CN_API_KEY` | `4096` |
+| `responses` | `https://maas.qianwenaiapi.com/compatible-mode/v1` | `deepseek-v4-flash-0731` | `QWEN_TOKEN_PLAN_API_KEY` | `4096` |
 | `anthropic-messages` | `https://api.deepseek.com/anthropic/v1` | `deepseek-flash` | `DEEPSEEK_API_KEY` | `65536` |
 | `zhipu-web-search` | `https://open.bigmodel.cn/api/paas/v4` | —（无模型回合） | `ZAI_CODING_CN_API_KEY`，其后历史名 `ZHIPU_API_KEY` | `4096`（不生效） |
 | `zhipu-chat-search` | `https://open.bigmodel.cn/api/paas/v4` | `glm-5.3-flash` | `ZAI_CODING_CN_API_KEY`，其后历史名 `ZHIPU_API_KEY` | `4096` |
 
-> ⚠️ `responses` 的默认 `baseURL` 是 Qwen Token Plan 的 **OpenAI 兼容**域：百炼官方只提供 OpenAI 兼容与 Anthropic 兼容两套接口，没有 Responses API。该端点若没有 `/responses` 路径，插件会给出明确诊断；要真正用起来，请改填确实实现了 Responses 的端点（实测可用：Kimi `https://api.moonshot.cn/v1`、OpenAI 官方）。千问请改用 `anthropic-messages` 模式配 `https://dashscope.aliyuncs.com/apps/anthropic/v1`。
+> ⚠️ 千问有两类凭据，**互不通用**：按量付费 key（`sk-…` / `sk-ws-…`）配 `https://maas.qianwenaiapi.com/compatible-mode/v1`（本插件默认地址，真的实现了 `/responses` 与内置 `web_search`；2026-10-13 实测每回合 26–37 条来源），Token Plan 套餐专属 key（`sk-sp-…`）则绑定 `token-plan.*.maas.aliyuncs.com` 域。拿错域名会得到 HTTP 401。千问的 **Anthropic 兼容**端点（`/apps/anthropic`）确实接受 `tools`，但只支持 Function Call——它会静默忽略 `web_search_20250305`——所以千问请用 `responses` 模式，不要用 `anthropic-messages`。
 
-**`responses`** 是本插件的历史行为：端点、模型、密钥引用随手可换，唯一要求是网关上**真的实现了 Responses API**（插件会向 `{baseURL}/responses` 发请求）且模型支持 `web_search` 工具。默认地址取自 Qwen Token Plan 的 **OpenAI 兼容**域，而百炼官方并未提供 Responses 接口——该端点若没有 `/responses` 路径，插件会明确报出这一点并提示改用 `anthropic-messages`；实测可用的 Responses 端点有 Kimi（`https://api.moonshot.cn/v1`）与 OpenAI 官方。额外的一个旋钮是 `responsesReasoningEffort`，透传 OpenAI 标准的 `reasoning.effort`（官方全集 `minimal` / `low` / `medium` / `high` / `xhigh`）；默认不传，选中的档位若模型不认识会被 400 拒绝，插件会自动去掉该档位重试一次。另外默认发送 `include: ["web_search_call.action.sources"]` 以取回完整来源列表（官方 API 里该字段是 include-only，不传就只剩引用注解里的少量来源）；网关拒绝未知参数时可在配置页关闭。
+**`responses`** 是本插件的历史行为：端点、模型、密钥引用随手可换，唯一要求是网关上**真的实现了 Responses API**（插件会向 `{baseURL}/responses` 发请求）且模型支持 `web_search` 工具。默认地址是千问AI平台的 OpenAI 兼容端点，2026-10-13 端到端实测：每回合 `web_search_call.action.sources[]` 给出 26–37 条 url，assistant 的 `message` 块不带 `phase`，`deepseek-v4-flash-0731` 与 `qwen3.8-flash` 都能跑内置搜索。其他实测可用的端点是 Kimi（`https://api.moonshot.cn/v1`）与 OpenAI 官方；没有 `/responses` 路径的端点会被明确报成这一点，而不是一个裸 404。额外的一个旋钮是 `responsesReasoningEffort`，透传 OpenAI 标准的 `reasoning.effort`（官方全集 `minimal` / `low` / `medium` / `high` / `xhigh`）；默认不传，选中的档位若模型不认识会被 400 拒绝，插件会自动去掉该档位重试一次。另外默认发送 `include: ["web_search_call.action.sources"]` 以取回完整来源列表（官方 API 里该字段是 include-only，不传就只剩引用注解里的少量来源；千问会接受并忽略它，两种情况下都返回来源）；网关拒绝未知参数时可在配置页关闭。
 
 **`anthropic-messages`** 说的是 DeepSeek 的 Anthropic 兼容端点：`baseURL` 追加 `/messages`，凭据引用默认 `DEEPSEEK_API_KEY`（与官方插件、对话模型共用同一个凭据），模型默认 `deepseek-flash`（端点上滚动指向最新 Flash）。该端点的 API 名只有 `deepseek-flash` 与 `deepseek-v4-pro`，版本号不是 API 名（`deepseek-v4.1-flash` 会被 HTTP 400 拒绝）。有两个协议专属键：`apiVersion`（`anthropic-version` 请求头，默认 `2023-06-01`）与 `maxUses`（`max_uses`，默认 5）。输出预算默认 `65536`，即 DeepSeek 文档中思考模式的 `max_tokens` 默认值（关闭思考 8K、`reasoning_effort: max` 时 128K，上限 384K）；Anthropic 协议要求该字段存在，插件因此显式发送该默认值而非依赖服务端行为。它只是上限、不预扣费，设得过小会截断回合、砍掉工具调用轮次。接口地址留空时会先回退到环境变量 `DEEPSEEK_SEARCH_BASE_URL`、再回退到内置默认值——与官方提供方一致。每次 Anthropic 调用还会以 `web/deepseek-search-llm-request` 事件记录到当前会话（端点、`anthropic-version`、请求体），与官方提供方行为相同。它说的是与官方 `deepseek-official` 提供方完全相同的线上格式——已有该密钥、或自建 Anthropic 兼容网关的部署无需重新配置。
 
@@ -161,7 +161,7 @@ pnpm run test        # 服务端测试
 
 ## 凭据
 
-在 Web 的 **Models** 页 / 凭据服务里保存密钥（`$DSH_HOME/.credentials.yaml`），或在启动环境中导出。引用名按模式取默认：`responses` 为 `QWEN_TOKEN_PLAN_CN_API_KEY`，`anthropic-messages` 为 `DEEPSEEK_API_KEY`，智谱模式为 `ZAI_CODING_CN_API_KEY`（其后历史名 `ZHIPU_API_KEY`）。提供方每次搜索动态解析，不在自身保留密钥，也不把密钥写入配置文件。
+在 Web 的 **Models** 页 / 凭据服务里保存密钥（`$DSH_HOME/.credentials.yaml`），或在启动环境中导出。引用名按模式取默认：`responses` 为 `QWEN_TOKEN_PLAN_API_KEY`，`anthropic-messages` 为 `DEEPSEEK_API_KEY`，智谱模式为 `ZAI_CODING_CN_API_KEY`（其后历史名 `ZHIPU_API_KEY`）。提供方每次搜索动态解析，不在自身保留密钥，也不把密钥写入配置文件。
 
 ## 许可证
 

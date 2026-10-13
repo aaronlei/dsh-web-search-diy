@@ -211,6 +211,25 @@ describe("mapResponsesResponse: sources beyond action.sources[]", () => {
 		assert.deepEqual(result.sources, [{ url: "https://z.example/a" }, { url: "https://z.example/b" }]);
 	});
 
+	it("maps a Qwen Responses turn: no phase, reasoning items, per-call sources", () => {
+		// Verified live 2026-10-13 against
+		// https://maas.qianwenaiapi.com/compatible-mode/v1/responses: Qwen emits
+		// reasoning items, several phase-less progress messages, and 26–37
+		// action.sources[] urls across its web_search_call blocks.
+		const result = mapResponsesResponse({
+			output: [
+				{ type: "reasoning", status: "completed", summary: [{ type: "summary_text", text: "Let me search." }], content: null },
+				{ type: "message", status: "completed", role: "assistant", content: [{ type: "output_text", text: "I'll search for that.", annotations: [] }] },
+				{ type: "web_search_call", status: "completed", action: { type: "search", query: "dsh", queries: ["dsh"], sources: [{ type: "url", url: "https://a.example/" }, { type: "url", url: "https://b.example/" }] } },
+				{ type: "web_search_call", status: "completed", action: { type: "search", query: "dsh docs", sources: [{ type: "url", url: "https://a.example/" }, { type: "url", url: "https://c.example/" }] } },
+				{ type: "message", status: "completed", role: "assistant", content: [{ type: "output_text", text: "## 答案\n\n正文", annotations: [] }] }
+			]
+		});
+		assert.equal(result.content, "## 答案\n\n正文");
+		assert.deepEqual(result.sources, [{ url: "https://a.example/" }, { url: "https://b.example/" }, { url: "https://c.example/" }]);
+		assert.equal(result.truncated, false);
+	});
+
 	it("collects the url of a find_in_page action too", () => {
 		const result = mapResponsesResponse({
 			output: [

@@ -313,6 +313,28 @@ describe("anthropic-messages mode", () => {
 		});
 	});
 
+	it("still fails when a 200 carries only prose, as Qwen's Anthropic surface answers", async () => {
+		// Verified live 2026-10-13 against
+		// https://maas.qianwenaiapi.com/apps/anthropic/v1/messages: the endpoint
+		// accepts `tools: [{ type: "web_search_20250305", ... }]` without a 400
+		// and then ignores it, answering prose — that must stay a loud failure,
+		// not an empty success.
+		stubFetch(() => jsonResponse({
+			id: "msg_qwen",
+			type: "message",
+			role: "assistant",
+			model: "qwen3.8-max",
+			content: [{ type: "text", text: "很抱歉，我无法为您联网搜索。" }],
+			stop_reason: "end_turn",
+			usage: { input_tokens: 34, output_tokens: 328 }
+		}));
+		await assert.rejects(anthropicProvider().search({ query: "q" }), (error) => {
+			assert.equal(error.code, "WEB_PROVIDER_ERROR");
+			assert.match(error.message, /no web_search_tool_result block/);
+			return true;
+		});
+	});
+
 	it("treats an empty result list as 'no matches', not as a failure", async () => {
 		stubFetch(() => jsonResponse({ content: [{ type: "web_search_tool_result", tool_use_id: "srvtoolu_1", content: [] }] }));
 		const result = await anthropicProvider().search({ query: "q" });

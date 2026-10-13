@@ -19,7 +19,7 @@ import { join } from "node:path";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { OpenAiSearchProvider, apply, resolveOptions } from "../lib/index.js";
 
-const QWEN_BASE_URL = "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1";
+const QWEN_BASE_URL = "https://maas.qianwenaiapi.com/compatible-mode/v1";
 const ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4";
 const DEEPSEEK_BASE_URL = "https://api.deepseek.com/anthropic/v1";
 
@@ -88,7 +88,7 @@ describe("mode-scoped defaults", () => {
 	it("keeps the historical defaults in responses mode", () => {
 		const options = resolveOptions(ctx, section());
 		assert.equal(options.baseURL, QWEN_BASE_URL);
-		assert.equal(options.apiKeyEnv, "QWEN_TOKEN_PLAN_CN_API_KEY");
+		assert.equal(options.apiKeyEnv, "QWEN_TOKEN_PLAN_API_KEY");
 		assert.equal(options.model, "deepseek-v4-flash-0731");
 	});
 

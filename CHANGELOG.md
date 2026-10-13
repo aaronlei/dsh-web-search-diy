@@ -92,27 +92,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   returning `web_search_tool_result` blocks that carry `title` and an ISO
   `page_age`, so `anthropic-messages` mode works there too (20 sources). Both
   endpoints list some Google redirect URLs among their sources; those are passed
-  through exactly as the provider sent them. Qwen/Model Studio, by contrast,
-  publishes no Responses API at all: its Base URL overview lists only
-  OpenAI-compatible (`.../compatible-mode/v1`) and Anthropic-compatible
-  (`.../apps/anthropic`) endpoints, and each plan's key must match its domain.
+  through exactly as the provider sent them. (An earlier reading of Qwen's Base
+  URL overview concluded that Qwen published no Responses API at all; the live
+  measurement recorded under *Changed* below shows the opposite.)
 - **A missing `/responses` surface is diagnosed instead of just reported** — a
   404 from the `responses` endpoint now states that the base URL exposes no
-  `/responses` path and names the protocol that does work, because Model Studio
-  (Qwen) publishes no Responses endpoint. Every Qwen credential on hand was
-  tried against `token-plan` (CN and SG), `dashscope`, `coding` (CN and intl)
-  and `portal.qwen.ai`, and all answered 401 — the stored token is expired — so
-  the configuration page's endpoint hint carries the guidance instead, and the
-  README protocol table no longer offers Qwen Token Plan as the Responses
-  example (Kimi's `https://api.moonshot.cn/v1` replaces it).
-- **Docs stop presenting Qwen as a Responses backend** — the module header, the
-  README default-value table (now with a warning block) and the `responses`
-  protocol paragraph state that the shipped default endpoint is Qwen Token
-  Plan's *OpenAI-compatible* domain and that Model Studio publishes no Responses
-  surface; Kimi's `https://api.moonshot.cn/v1` and OpenAI are named as the
-  verified Responses endpoints, and Qwen is pointed at the `anthropic-messages`
-  mode. Those paragraphs now also describe the expanded effort set and the
-  automatic retry instead of the old `low`/`high`-only wording.
+  `/responses` path and names endpoints that do implement it, instead of
+  surfacing a bare status line.
+- **Qwen measured live on both protocols; defaults moved to the surface that
+  works** — the shipped default used to be Qwen Token Plan's *OpenAI-compatible*
+  domain with `QWEN_TOKEN_PLAN_CN_API_KEY`, and that domain answers a
+  pay-as-you-go key with HTTP 401: Token Plan's own docs pin its `sk-sp-…`
+  subscription key to a `token-plan.*.maas.aliyuncs.com` endpoint, while the
+  stored `sk-ws-…` key is pay-as-you-go. Measured on 2026-10-13 against
+  `https://maas.qianwenaiapi.com/compatible-mode/v1`, `POST /responses` with
+  `tools: [{type: "web_search"}]` really searches: `web_search_call` blocks
+  carry 26–37 `action.sources[]` urls (no titles), `include` is accepted and
+  ignored — sources arrive with or without it — assistant `message` blocks carry
+  no `phase` (the mapper's "last non-empty `output_text`" fallback picks the
+  5845-character final answer over the progress notes), and both
+  `deepseek-v4-flash-0731` (4 searches / 35 sources / 17.3s) and
+  `qwen3.8-flash` (1 / 29 / 16.5s) run the built-in tool. The same platform's
+  Anthropic-compatible surface is the opposite:
+  `https://maas.qianwenaiapi.com/apps/anthropic/v1/messages` accepts
+  `tools: [{type: "web_search_20250305", name: "web_search", max_uses: 5}]`
+  without a 400 and then answers prose in ~8s with no `server_tool_use`, no
+  `web_search_tool_result`, and the same text it returns when no tools are sent
+  at all — its reference lists the `content` block types as
+  `text`/`thinking`/`tool_use` and `tools` as function calling only, so there is
+  no server-side search. The default `baseURL` and `apiKeyEnv`, the README tables
+  and warning block, and the configuration page's endpoint hint therefore now
+  point Qwen at the `responses` mode instead of `anthropic-messages`, the module
+  header records the measurement, and two regression tests pin the shapes
+  (phase-less Qwen Responses turns; a 200 carrying only prose on an Anthropic
+  surface must still fail loudly). The `responses` protocol paragraphs continue
+  to describe the expanded effort set and the automatic retry instead of the old
+  `low`/`high`-only wording.
 
 ## [1.0.2] - 2026-10-09
 
