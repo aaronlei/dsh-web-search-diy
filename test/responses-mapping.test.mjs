@@ -51,6 +51,7 @@ function baseOptions(overrides = {}) {
 		contentSize: "medium",
 		reasoningEffort: "low",
 		responsesReasoningEffort: "",
+		responsesIncludeSources: true,
 		searchDomainFilter: "",
 		searchIntent: false,
 		requireSearch: false,
@@ -194,6 +195,29 @@ describe("mapResponsesResponse: sources beyond action.sources[]", () => {
 		assert.deepEqual(result.sources, [{ url: "https://z.example/a" }, { url: "https://z.example/b" }]);
 	});
 
+	it("collects the url of a find_in_page action too", () => {
+		const result = mapResponsesResponse({
+			output: [
+				{ type: "web_search_call", status: "completed", action: { type: "search", query: "q" } },
+				{ type: "web_search_call", status: "completed", action: { type: "open_page", url: "https://o.example/page" } },
+				{ type: "web_search_call", status: "completed", action: { type: "find_in_page", url: "https://f.example/page", pattern: "weather" } },
+				{ type: "message", status: "completed", phase: "final_answer", content: [{ type: "output_text", text: "答案" }] }
+			]
+		});
+		assert.deepEqual(result.sources, [{ url: "https://o.example/page" }, { url: "https://f.example/page" }]);
+	});
+
+	it("prefers the message OpenAI labelled final_answer over later commentary", () => {
+		const result = mapResponsesResponse({
+			output: [
+				{ type: "web_search_call", status: "completed", action: { type: "search", query: "q" } },
+				{ type: "message", status: "completed", phase: "final_answer", content: [{ type: "output_text", text: "最终答案" }] },
+				{ type: "message", status: "completed", phase: "commentary", content: [{ type: "output_text", text: "补充说明" }] }
+			]
+		});
+		assert.equal(result.content, "最终答案");
+	});
+
 	it("ignores malformed source entries", () => {
 		const result = mapResponsesResponse({
 			output: [
@@ -258,6 +282,34 @@ describe("zhipu paas/v4 request bodies", () => {
 		try {
 			await provider().search({ query: "q" });
 			assert.equal(calls[0].body.request_id, void 0);
+		} finally {
+			globalThis.fetch = realFetch;
+		}
+	});
+
+	it("requests web_search_call.action.sources by default and honours the switch", async () => {
+		const onCalls = stubFetch({
+			output: [
+				{ type: "web_search_call", action: { sources: [{ type: "url", url: "https://q.example/" }] } },
+				{ type: "message", content: [{ type: "output_text", text: "答案" }] }
+			]
+		});
+		try {
+			await provider().search({ query: "q" });
+			assert.deepEqual(onCalls[0].body.include, ["web_search_call.action.sources"]);
+		} finally {
+			globalThis.fetch = realFetch;
+		}
+
+		const offCalls = stubFetch({
+			output: [
+				{ type: "web_search_call", action: { sources: [{ type: "url", url: "https://q.example/" }] } },
+				{ type: "message", content: [{ type: "output_text", text: "答案" }] }
+			]
+		});
+		try {
+			await provider(baseOptions({ responsesIncludeSources: false })).search({ query: "q" });
+			assert.equal(offCalls[0].body.include, void 0);
 		} finally {
 			globalThis.fetch = realFetch;
 		}

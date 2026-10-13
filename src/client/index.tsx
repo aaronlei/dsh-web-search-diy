@@ -15,8 +15,10 @@
  * 自有样式表，全部颜色走 `--dsw-alias-*` 主题变量，深浅色自动跟随。
  *
  * 卡片通过 host 的 /api/web-search-diy/config 端点读写配置：
- *   - mode / baseURL / apiKeyEnv / model / maxOutputTokens 及智谱搜索
- *     选项（searchEngine / count / searchRecencyFilter / contentSize /
+ *   - mode / baseURL / apiKeyEnv / model / maxOutputTokens 及协议专属选项
+ *     （responses: responsesReasoningEffort / responsesIncludeSources；
+ *     anthropic-messages: apiVersion / maxUses / anthropicThinking；智谱:
+ *     searchEngine / count / searchRecencyFilter / contentSize /
  *     searchDomainFilter / searchIntent / requireSearch / searchPrompt）
  *     → 存 $DSH_HOME/dsh-web-search-diy.json
  *   - API key → host 经 credentials seam 只写存储（不落配置、不回显）
@@ -61,6 +63,7 @@ interface Draft {
 	contentSize: "medium" | "high";
 	reasoningEffort: "low" | "high" | "max";
 	responsesReasoningEffort: "" | "low" | "high";
+	responsesIncludeSources: boolean;
 	searchDomainFilter: string;
 	searchIntent: boolean;
 	requireSearch: boolean;
@@ -85,6 +88,7 @@ interface Bucket {
 	contentSize?: Draft["contentSize"];
 	reasoningEffort?: Draft["reasoningEffort"];
 	responsesReasoningEffort?: Exclude<Draft["responsesReasoningEffort"], "">;
+	responsesIncludeSources?: boolean;
 	searchDomainFilter?: string;
 	searchIntent?: boolean;
 	requireSearch?: boolean;
@@ -276,6 +280,8 @@ const zh: Record<string, string> = {
 	thinkingOff: "关闭思考（更快、更省）",
 	responsesReasoningEffort: "推理档位 reasoning.effort",
 	responsesReasoningEffortHint: "仅 OpenAI 兼容模式生效；透传 OpenAI 标准 reasoning.effort。默认不传，随大模型自身模式；网关不支持该参数时请保持默认。",
+	responsesIncludeSources: "请求完整来源 include",
+	responsesIncludeSourcesHint: "仅 OpenAI 兼容模式生效；发送 include: [\"web_search_call.action.sources\"] 取回完整来源列表——官方 API 里该字段是 include-only，不传就只剩引用注解里的少量来源。默认开启；网关拒绝未知参数时再关闭。",
 	searchDomainFilter: "域名白名单 searchDomainFilter",
 	searchDomainHint: "仅智谱模式生效；只返回指定域名（如 www.example.com）的结果，留空不限。",
 	domainQuarkNote: "search_pro_quark 不支持该参数，填写后将被忽略。",
@@ -356,6 +362,8 @@ const en: Record<string, string> = {
 	thinkingOff: "Off (faster, cheaper)",
 	responsesReasoningEffort: "Reasoning effort (reasoning.effort)",
 	responsesReasoningEffortHint: "OpenAI-compatible mode only; passes the OpenAI-standard reasoning.effort. Default sends nothing and follows the model's own mode; keep the default if your gateway rejects the parameter.",
+	responsesIncludeSources: "Request full sources (include)",
+	responsesIncludeSourcesHint: "OpenAI-compatible mode only; sends include: [\"web_search_call.action.sources\"] so the response carries the complete source list — the field is include-only in the official API, and without it only the few citation annotations remain. On by default; turn it off if your gateway rejects the parameter.",
 	searchDomainFilter: "Domain allowlist",
 	searchDomainHint: "Zhipu modes only; only results from the given domain (e.g. www.example.com), blank for no restriction.",
 	domainQuarkNote: "search_pro_quark does not support this parameter; any value is ignored.",
@@ -521,6 +529,7 @@ function normalizeBucket(bucket: Bucket): Omit<Draft, "mode"> {
 		contentSize: bucket.contentSize ?? "medium",
 		reasoningEffort: bucket.reasoningEffort ?? "low",
 		responsesReasoningEffort: bucket.responsesReasoningEffort ?? "",
+		responsesIncludeSources: bucket.responsesIncludeSources ?? true,
 		searchDomainFilter: bucket.searchDomainFilter ?? "",
 		searchIntent: !!bucket.searchIntent,
 		requireSearch: !!bucket.requireSearch,
@@ -565,7 +574,7 @@ function draftForMode(mode: Mode, buckets: Record<string, Bucket> | undefined): 
 	};
 }
 /** Draft keys compared against the saved snapshot to flag "unsaved". */
-const DRAFT_KEYS: readonly (keyof Draft)[] = ["mode", "baseURL", "apiKeyEnv", "model", "maxOutputTokens", "apiVersion", "maxUses", "anthropicThinking", "searchEngine", "count", "searchRecencyFilter", "contentSize", "reasoningEffort", "responsesReasoningEffort", "searchDomainFilter", "searchIntent", "requireSearch", "searchPrompt"];
+const DRAFT_KEYS: readonly (keyof Draft)[] = ["mode", "baseURL", "apiKeyEnv", "model", "maxOutputTokens", "apiVersion", "maxUses", "anthropicThinking", "searchEngine", "count", "searchRecencyFilter", "contentSize", "reasoningEffort", "responsesReasoningEffort", "responsesIncludeSources", "searchDomainFilter", "searchIntent", "requireSearch", "searchPrompt"];
 /**
  * Official endpoint, model, and credential reference per protocol family,
  * highest priority first: these are settled facts, not something the user
@@ -622,6 +631,7 @@ function emptyDraft(): Draft {
 		contentSize: "medium",
 		reasoningEffort: "low",
 		responsesReasoningEffort: "",
+		responsesIncludeSources: true,
 		searchDomainFilter: "",
 		searchIntent: false,
 		requireSearch: false,
@@ -969,6 +979,16 @@ function ConfigPage(props: { t: (key: string) => string }) {
 					]}
 					onEdit={(value) => {
 						setDraft((current) => ({ ...current, responsesReasoningEffort: value as Draft["responsesReasoningEffort"] }));
+					}}
+				/> : null,
+				draft.mode === "responses" ? <SwitchField
+					key="responsesIncludeSources"
+					id="plugin-config-web-search-diy-responses-include-sources"
+					label={t("responsesIncludeSources")}
+					hint={t("responsesIncludeSourcesHint")}
+					checked={draft.responsesIncludeSources}
+					onEdit={(checked) => {
+						setDraft((current) => ({ ...current, responsesIncludeSources: checked }));
 					}}
 				/> : null,
 				<SecretField

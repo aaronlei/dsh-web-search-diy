@@ -45,6 +45,7 @@ function baseOptions(overrides = {}) {
 		contentSize: "medium",
 		reasoningEffort: "low",
 		responsesReasoningEffort: "",
+		responsesIncludeSources: true,
 		searchDomainFilter: "",
 		searchIntent: false,
 		searchPrompt: "",
@@ -294,5 +295,28 @@ describe("anthropic-messages mode", () => {
 			assert.match(error.message, /no web_search_tool_result block/);
 			return true;
 		});
+	});
+
+	it("treats an empty result list as 'no matches', not as a failure", async () => {
+		stubFetch(() => jsonResponse({ content: [{ type: "web_search_tool_result", tool_use_id: "srvtoolu_1", content: [] }] }));
+		const result = await anthropicProvider().search({ query: "q" });
+		assert.deepEqual(result, { sources: [], truncated: false });
+	});
+
+	it("normalizes Anthropic's human-readable page_age into an ISO date", async () => {
+		stubFetch(() => jsonResponse({
+			content: [{
+				type: "web_search_tool_result",
+				content: [
+					{ type: "web_search_result", url: "https://e.example/a", title: "A", page_age: "April 30, 2025" },
+					{ type: "web_search_result", url: "https://e.example/b", title: "B", page_age: "最近更新" }
+				]
+			}]
+		}));
+		const result = await anthropicProvider().search({ query: "q" });
+		assert.deepEqual(result.sources, [
+			{ url: "https://e.example/a", title: "A", publishedAt: "2025-04-30" },
+			{ url: "https://e.example/b", title: "B" }
+		]);
 	});
 });

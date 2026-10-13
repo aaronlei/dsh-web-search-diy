@@ -26,9 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Zhipu's Responses endpoint (verified live 2026-10-13) emits one `message` per
   progress step ("The first search didn't return relevant results, so let me
   refine the query:") before the final answer, and the mapper used to keep the
-  first `output_text`. It now keeps the last non-empty one, so `content` carries
-  the answer. Zhipu's Anthropic-compatible endpoint is unaffected by this fix
-  and still fails loudly: it accepts `web_search_20250305` but runs no search
+  first `output_text`. It now prefers the message OpenAI labels
+  `phase: "final_answer"` and falls back to the last non-empty `output_text` for
+  gateways that omit the field (Zhipu), so `content` carries the answer. Zhipu's
+  Anthropic-compatible endpoint is unaffected by this fix and still fails loudly:
+  it accepts `web_search_20250305` but runs no search
   (`usage.server_tool_use.web_search_requests: 0`).
 
 ### Added
@@ -42,6 +44,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `meta.title` / `meta.description`, so the plugin list and its detail page
   follow the app language (Settings → Language) instead of falling back to the
   English `package.json` description.
+
+### Changed
+
+- **OpenAI-protocol conformance** (checked against the Responses API reference
+  and the web search guide) — `responses` mode now sends
+  `include: ["web_search_call.action.sources"]` by default, because the official
+  API returns `action.sources` only when requested through `include`. A new
+  `responsesIncludeSources` switch turns it off for a gateway that rejects
+  unknown parameters; DeepSeek and Zhipu both accept it (verified live
+  2026-10-13). The mapper also reads `find_in_page` action URLs alongside
+  `open_page`.
+- **Anthropic-protocol conformance** (checked against the web search tool docs) —
+  an empty `web_search_tool_result.content` list is a search that matched
+  nothing, which the API reports as success, so it now resolves to empty
+  `sources` instead of `WEB_PROVIDER_ERROR`; only a response with no result block
+  at all still fails. `page_age`, a human-readable date in the official API
+  ("April 30, 2025"), is normalized to the ISO-8601 `publishedAt` the seam
+  promises, and dropped when it carries no parsable date.
 
 ## [1.0.2] - 2026-10-09
 

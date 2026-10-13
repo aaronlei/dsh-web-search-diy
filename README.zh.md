@@ -22,7 +22,7 @@
 | `zhipu-web-search` | `https://open.bigmodel.cn/api/paas/v4` | —（无模型回合） | `ZAI_CODING_CN_API_KEY`，其后历史名 `ZHIPU_API_KEY` | `4096`（不生效） |
 | `zhipu-chat-search` | `https://open.bigmodel.cn/api/paas/v4` | `glm-5.3-flash` | `ZAI_CODING_CN_API_KEY`，其后历史名 `ZHIPU_API_KEY` | `4096` |
 
-**`responses`** 是本插件的历史行为：端点、模型、密钥引用随手可换，唯一要求是模型在网关上真的支持 `web_search` 工具。额外的一个旋钮是 `responsesReasoningEffort`，透传 OpenAI 标准的 `reasoning.effort`（`low` / `high`）；默认不传——网关不实现该参数时可能直接拒绝整个请求，那种网关上请保持默认。
+**`responses`** 是本插件的历史行为：端点、模型、密钥引用随手可换，唯一要求是模型在网关上真的支持 `web_search` 工具。额外的一个旋钮是 `responsesReasoningEffort`，透传 OpenAI 标准的 `reasoning.effort`（`low` / `high`）；默认不传——网关不实现该参数时可能直接拒绝整个请求，那种网关上请保持默认。另外默认发送 `include: ["web_search_call.action.sources"]` 以取回完整来源列表（官方 API 里该字段是 include-only，不传就只剩引用注解里的少量来源）；网关拒绝未知参数时可在配置页关闭。
 
 **`anthropic-messages`** 说的是 DeepSeek 的 Anthropic 兼容端点：`baseURL` 追加 `/messages`，凭据引用默认 `DEEPSEEK_API_KEY`（与官方插件、对话模型共用同一个凭据），模型默认 `deepseek-flash`（端点上滚动指向最新 Flash）。该端点的 API 名只有 `deepseek-flash` 与 `deepseek-v4-pro`，版本号不是 API 名（`deepseek-v4.1-flash` 会被 HTTP 400 拒绝）。有两个协议专属键：`apiVersion`（`anthropic-version` 请求头，默认 `2023-06-01`）与 `maxUses`（`max_uses`，默认 5）。输出预算默认 `65536`，即 DeepSeek 文档中思考模式的 `max_tokens` 默认值（关闭思考 8K、`reasoning_effort: max` 时 128K，上限 384K）；Anthropic 协议要求该字段存在，插件因此显式发送该默认值而非依赖服务端行为。它只是上限、不预扣费，设得过小会截断回合、砍掉工具调用轮次。接口地址留空时会先回退到环境变量 `DEEPSEEK_SEARCH_BASE_URL`、再回退到内置默认值——与官方提供方一致。每次 Anthropic 调用还会以 `web/deepseek-search-llm-request` 事件记录到当前会话（端点、`anthropic-version`、请求体），与官方提供方行为相同。它说的是与官方 `deepseek-official` 提供方完全相同的线上格式——已有该密钥、或自建 Anthropic 兼容网关的部署无需重新配置。
 
@@ -116,6 +116,7 @@ pnpm run test        # 服务端测试
 | `searchPrompt` | — | 智谱问答增强的搜索提示词，留空用官方默认（仅 `zhipu-chat-search`） |
 | `reasoningEffort` | `low` | 问答增强回合的思考强度 `reasoning_effort`：`low` / `high` / `max`；`low` 让 GLM-5.3-Flash 这类强制思考模型保持快速（仅 `zhipu-chat-search`） |
 | `responsesReasoningEffort` | —（不传） | OpenAI 兼容回合的推理档位 `reasoning.effort`：`low` / `high`；不传则随大模型自身模式（仅 `responses`） |
+| `responsesIncludeSources` | `true` | 发送 `include: ["web_search_call.action.sources"]` 取回完整来源列表（官方 API 里该字段是 include-only）；网关拒绝未知参数时关闭（仅 `responses`） |
 
 > `apiKeyEnv` / `baseURL` / `model` 留空时按当前 `mode` 取默认。历史配置里由 schema 默认固化的 Qwen 地址/引用在切换模式时让位给新模式的默认值；同样固化的 DeepSeek 模型名只在切到智谱模式（其端点无法承载该模型）时让位。旧 schema 固化下来的 `1024` 输出预算同样按化石处理，而从配置页明确设置的 `1024` 依然生效。显式自定义的值则始终尊重。
 
@@ -147,8 +148,8 @@ pnpm run test        # 服务端测试
       对话 LLM 基于搜索结果作答
 ```
 
-- **responses**：每次搜索是一次 Responses API 调用（完整的一轮模型推理）。来源按网关实际给出的形状收集并去重：`web_search_call.action.sources[]`（Qwen/OpenAI 形状）、`action.type: "open_page"` 的 `action.url`（DeepSeek 形状）、`url_citation` 注解的 URL（同时为上述来源提供标题），以及智谱网关随 `web_search_call.results[]` 附带的 title/snippet 兜底补全。模型最终生成的答案（最后一段非空 `output_text`，因为网关会在最终答案前插入"第一次搜索没有相关结果，让我换个查询"这类过程旁白）成为 `content`。判定依据是**搜索证据**而非来源数量：响应里有 `web_search_call` 块或引用注解就算成功——DeepSeek 的 Responses 端点会执行搜索却完全不给 `action.sources[]`；两者都没有时以 `WEB_PROVIDER_ERROR` 响亮失败，绝不把模型凭自身知识写出的文本当成搜索结果（实测 2026-10-13：DeepSeek 官方 Responses 端点对 `deepseek-flash` 静默忽略内置 `web_search` 工具）。
-- **anthropic-messages**：每次搜索是一次 Anthropic Messages 调用，带原生 `web_search_20250305` 服务端工具。`web_search_tool_result` 块成为去重的 `sources[]`（`url`、可选 `title`、`page_age` → `publishedAt`），`snippet` 由响应的 `citations[].cited_text` 关联得到。提供方自己的文本不作为 `content` 返回（与官方提供方一致）。报告工具失败的 result 块（`max_uses_exceeded`、`too_many_requests` 等）会带出该错误码而不是笼统的 unprocessable body；没有任何 result 块的响应以 `WEB_PROVIDER_ERROR` 响亮失败。注意智谱的 Claude 兼容端点（`https://open.bigmodel.cn/api/anthropic`）接受 `web_search_20250305` 却不执行搜索（实测 `server_tool_use.web_search_requests: 0`，模型自述无法联网），因此该端点在本模式下会响亮失败，不会把模型自身知识当成检索结果。
+- **responses**：每次搜索是一次 Responses API 调用（完整的一轮模型推理）。默认发送 `include: ["web_search_call.action.sources"]`——官方 API 把该字段列为 include-only，不传就只剩引用注解里的少量来源；网关拒绝未知参数时可在配置页关闭。来源按网关实际给出的形状收集并去重：`web_search_call.action.sources[]`（Qwen/OpenAI 形状）、`action.type: "open_page"` / `"find_in_page"` 的 `action.url`（DeepSeek 形状）、`url_citation` 注解的 URL（同时为上述来源提供标题），以及智谱网关随 `web_search_call.results[]` 附带的 title/snippet 兜底补全。模型答案成为 `content`：优先取 OpenAI 标了 `phase: "final_answer"` 的 message，缺失该字段的网关（如智谱）退回最后一段非空 `output_text`——它们会在最终答案前插入"第一次搜索没有相关结果，让我换个查询"这类过程旁白。判定依据是**搜索证据**而非来源数量：响应里有 `web_search_call` 块或引用注解就算成功——DeepSeek 的 Responses 端点会执行搜索却完全不给 `action.sources[]`；两者都没有时以 `WEB_PROVIDER_ERROR` 响亮失败，绝不把模型凭自身知识写出的文本当成搜索结果（实测 2026-10-13：DeepSeek 官方 Responses 端点对 `deepseek-flash` 静默忽略内置 `web_search` 工具）。
+- **anthropic-messages**：每次搜索是一次 Anthropic Messages 调用，带原生 `web_search_20250305` 服务端工具。`web_search_tool_result` 块成为去重的 `sources[]`（`url`、可选 `title`、`page_age` → `publishedAt`；官方给的 `page_age` 是人类可读日期如 "April 30, 2025"，会先归一化为 ISO-8601，解析不出日期就丢弃），`snippet` 由响应的 `citations[].cited_text` 关联得到。提供方自己的文本不作为 `content` 返回（与官方提供方一致）。报告工具失败的 result 块（`max_uses_exceeded`、`too_many_requests` 等）会带出该错误码而不是笼统的 unprocessable body；空的结果列表按官方语义是"没搜到结果"而非错误，返回空 `sources[]`；完全没有 result 块的响应才以 `WEB_PROVIDER_ERROR` 响亮失败。注意智谱的 Claude 兼容端点（`https://open.bigmodel.cn/api/anthropic`）接受 `web_search_20250305` 却不执行搜索（实测 `server_tool_use.web_search_requests: 0`，模型自述无法联网），因此该端点在本模式下会响亮失败，不会把模型自身知识当成检索结果。
 - **zhipu-web-search**：`search_result[]` 直接映射为去重的 `sources[]`（url + title），并取前至多八条「标题 + 摘要」拼接为 `content` 速览。空结果是合法结果，返回空 `sources[]` 而非报错。
 - **zhipu-chat-search**：`choices[0].message.content` 即融合回答（`content`），工具声明的 `search_result: true` 让端点附带来源详情，从消息级/根级 `web_search` 字段防御式解析为 `sources[]`；有回答而无来源详情同样可用。
 - **凭据处理**：密钥每次搜索动态解析，不在提供方上保留，作为 `authorization: Bearer` 发送（Anthropic 模式另加 `x-api-key` 与 `anthropic-version`）。缺少密钥抛 `WEB_PROVIDER_CREDENTIAL_MISSING`；搜索被取消抛 `WEB_ABORTED`。
