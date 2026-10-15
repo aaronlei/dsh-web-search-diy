@@ -11,9 +11,15 @@
  *   separate `{type: "open_page", url}` call, never sends `action.sources[]`,
  *   and leaves `message.annotations` empty. The mapper therefore treats
  *   `open_page` urls and `url_citation` annotations as sources too, and counts a
- *   `web_search_call` block (with or without sources) as proof the search ran.
+ *   `web_search_call` block (with or without sources) as proof the search ran,
+ *   unless its official `status` says the call failed.
  *   The same endpoint silently ignores `tools:[{type:"web_search"}]` for
  *   `deepseek-flash`, whose answer without any search evidence stays an error.
+ * - Block types are matched against the official `web_search_call` spelling plus
+ *   the same `:web_search` suffix, since a gateway may namespace its server tool
+ *   (OpenRouter returns `openrouter:web_search`) while keeping every other
+ *   member identical; `failed` / `incomplete` blocks still contribute urls but
+ *   are reported as an unfinished search rather than blamed on the endpoint.
  * - Zhipu's Responses endpoint (verified live 2026-10-13) sends
  *   `web_search_call.action.sources[]` together with `results[]`, and is the
  *   only gateway seen emitting progress messages ("The first search didn't
@@ -53,6 +59,7 @@ function baseOptions(overrides = {}) {
 		reasoningEffort: "low",
 		responsesReasoningEffort: "",
 		responsesIncludeSources: true,
+		responsesToolType: "web_search",
 		searchDomainFilter: "",
 		searchIntent: false,
 		requireSearch: false,
@@ -303,6 +310,81 @@ describe("mapResponsesResponse: sources beyond action.sources[]", () => {
 	});
 });
 
+describe("mapResponsesResponse: namespaced block types and official status", () => {
+	it("accepts a gateway-namespaced web search block (OpenRouter shape)", () => {
+		const result = mapResponsesResponse({
+			output: [
+				{ type: "reasoning", status: "completed" },
+				{ type: "openrouter:web_search", status: "completed", action: { type: "search", query: "q", sources: [{ type: "url", url: "https://or.example/a" }] } },
+				{ type: "openrouter:web_search", status: "completed", action: { type: "search", query: "q2", sources: [{ type: "url", url: "https://or.example/b" }] } },
+				{ type: "message", phase: "final_answer", content: [{ type: "output_text", text: "答案" }] }
+			]
+		});
+		assert.deepEqual(result, {
+			content: "答案",
+			sources: [{ url: "https://or.example/a" }, { url: "https://or.example/b" }],
+			truncated: false
+		});
+	});
+
+	it("counts a namespaced block as search evidence even with no sources", () => {
+		const result = mapResponsesResponse({
+			output: [
+				{ type: "openrouter:web_search", status: "completed", action: { type: "search", query: "q" } },
+				{ type: "message", content: [{ type: "output_text", text: "答案" }] }
+			]
+		});
+		assert.deepEqual(result, { content: "答案", sources: [], truncated: false });
+	});
+
+	it("does not mistake a bare web_search tool declaration for a search block", () => {
+		assert.throws(() => mapResponsesResponse({
+			output: [
+				{ type: "web_search", status: "completed" },
+				{ type: "message", content: [{ type: "output_text", text: "没有搜索" }] }
+			]
+		}), /no web_search_call block and no citations/u);
+	});
+
+	it("names the observed output item types when no search is found", () => {
+		assert.throws(() => mapResponsesResponse({
+			output: [
+				{ type: "reasoning" },
+				{ type: "message", content: [{ type: "output_text", text: "答案" }] }
+			]
+		}), /output item types: reasoning, message/u);
+	});
+
+	it("reports a failed search instead of blaming the endpoint", () => {
+		assert.throws(() => mapResponsesResponse({
+			output: [
+				{ type: "openrouter:web_search", status: "failed", action: { type: "search", query: "q" } },
+				{ type: "message", content: [{ type: "output_text", text: "答案" }] }
+			]
+		}), /reported status "failed" or "incomplete"/u);
+	});
+
+	it("still keeps urls a failed block contributes", () => {
+		const result = mapResponsesResponse({
+			output: [
+				{ type: "web_search_call", status: "failed", action: { type: "open_page", url: "https://failed.example/page" } },
+				{ type: "message", content: [{ type: "output_text", text: "答案" }] }
+			]
+		});
+		assert.deepEqual(result, { content: "答案", sources: [{ url: "https://failed.example/page" }], truncated: false });
+	});
+
+	it("counts a non-terminal status as evidence (only failed/incomplete are excluded)", () => {
+		const result = mapResponsesResponse({
+			output: [
+				{ type: "web_search_call", status: "searching", action: { type: "search", queries: ["q"] } },
+				{ type: "message", content: [{ type: "output_text", text: "答案" }] }
+			]
+		});
+		assert.deepEqual(result, { content: "答案", sources: [], truncated: false });
+	});
+});
+
 describe("zhipu paas/v4 request bodies", () => {
 	it("attaches a UUID request_id in zhipu-web-search mode", async () => {
 		const calls = stubFetch({ search_result: [] });
@@ -389,6 +471,35 @@ describe("zhipu paas/v4 request bodies", () => {
 		try {
 			await provider(baseOptions({ responsesIncludeSources: false })).search({ query: "q" });
 			assert.equal(offCalls[0].body.include, void 0);
+		} finally {
+			globalThis.fetch = realFetch;
+		}
+	});
+
+	it("declares the official tool name by default and honours a namespaced one", async () => {
+		const defaultCalls = stubFetch({
+			output: [
+				{ type: "web_search_call", action: { sources: [{ type: "url", url: "https://q.example/" }] } },
+				{ type: "message", content: [{ type: "output_text", text: "答案" }] }
+			]
+		});
+		try {
+			await provider().search({ query: "q" });
+			assert.deepEqual(defaultCalls[0].body.tools, [{ type: "web_search" }]);
+		} finally {
+			globalThis.fetch = realFetch;
+		}
+
+		const namespacedCalls = stubFetch({
+			output: [
+				{ type: "openrouter:web_search", status: "completed", action: { type: "search", query: "q", sources: [{ type: "url", url: "https://or.example/" }] } },
+				{ type: "message", content: [{ type: "output_text", text: "答案" }] }
+			]
+		});
+		try {
+			const result = await provider(baseOptions({ responsesToolType: "openrouter:web_search" })).search({ query: "q" });
+			assert.deepEqual(namespacedCalls[0].body.tools, [{ type: "openrouter:web_search" }]);
+			assert.deepEqual(result.sources, [{ url: "https://or.example/" }]);
 		} finally {
 			globalThis.fetch = realFetch;
 		}

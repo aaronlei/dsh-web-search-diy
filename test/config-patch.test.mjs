@@ -99,7 +99,8 @@ describe("buildConfigPatch", () => {
 			model: " glm-5.3-flash ",
 			searchIntent: true,
 			anthropicThinking: "disabled",
-			apiVersion: "2023-06-01"
+			apiVersion: "2023-06-01",
+			responsesToolType: "openrouter:web_search"
 		});
 		assert.equal(error, void 0);
 		assert.deepEqual(cleared, []);
@@ -111,7 +112,8 @@ describe("buildConfigPatch", () => {
 			model: "glm-5.3-flash",
 			searchIntent: true,
 			anthropicThinking: "disabled",
-			apiVersion: "2023-06-01"
+			apiVersion: "2023-06-01",
+			responsesToolType: "openrouter:web_search"
 		});
 	});
 
@@ -123,6 +125,15 @@ describe("buildConfigPatch", () => {
 		assert.match(buildConfigPatch({ anthropicThinking: "maybe" }).error, /^anthropicThinking 必须是/);
 		assert.match(buildConfigPatch({ searchIntent: "true" }).error, /^searchIntent 必须是布尔值$/);
 		assert.match(buildConfigPatch({ responsesReasoningEffort: "max" }).error, /^responsesReasoningEffort 必须是/);
+		assert.match(buildConfigPatch({ responsesToolType: "web_search_call" }).error, /^responsesToolType 必须是/);
+	});
+
+	it("accepts every known Responses tool spelling and rejects the rest", () => {
+		for (const spelling of ["web_search", "openrouter:web_search", "web_search_20250305"]) {
+			const { patch, error } = buildConfigPatch({ responsesToolType: spelling });
+			assert.equal(error, void 0);
+			assert.deepEqual(patch, { responsesToolType: spelling });
+		}
 	});
 
 	it("accepts an empty object without inventing changes", () => {
