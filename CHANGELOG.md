@@ -5,6 +5,36 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-10-15
+
+### Added
+
+- **`responses` mode: configurable `tools[]` declaration name** — the official
+  Responses API declares the built-in tool as `web_search`, while a gateway may
+  only accept a spelling of its own: OpenRouter's `/tools` schema lists
+  `openrouter:web_search` as the canonical `tools[].type` on every API format it
+  supports, and `web_search_20250305` as an alias accepted on `responses` too.
+  Declaring the wrong one can make the endpoint run no search at all and answer
+  without any search block. The new `responsesToolType` setting (configuration
+  page, default `web_search`) selects which of the three names is declared; the
+  response mapper already reads either spelling back.
+
+### Fixed
+
+- **`responses` mode accepts a gateway-namespaced search block** — the official
+  Responses API fixes the output item type at `web_search_call` ("Always
+  `web_search_call`"), while OpenRouter returns the same block as
+  `openrouter:web_search`, with `status` and `action.sources[]` carrying the
+  official members. The mapper now matches the plain spelling and the same
+  `:web_search` suffix, so a completed search from such a gateway yields its
+  sources instead of failing with `WEB_PROVIDER_ERROR`.
+- **`responses` mode honours the official `status` enum** — a block reporting
+  `failed` / `incomplete` still contributes its urls (DeepSeek reports an opened
+  page that way) but no longer counts as proof a search ran; that case is now
+  reported as an unfinished search instead of blaming the endpoint. Both
+  remaining "no search evidence" errors name the output item types actually
+  observed, so a naming mismatch is diagnosable from the message alone.
+
 ## [1.1.0] - 2026-10-13
 
 ### Fixed
