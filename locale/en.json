@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Web Search (dsh-web-search-diy)",
-    "description": "Supplies the built-in web_search tool through four selectable protocols — OpenAI-compatible Responses, Anthropic-compatible Messages, and Zhipu Web Search / Chat Search — returning structured citation sources."
+    "description": "Supplies the built-in web_search tool per vendor and protocol: in-protocol search over Chat Completions / Responses / Anthropic Messages, plus the standalone search APIs of DeepSeek, Kimi, and Zhipu, returning structured citation sources."
   }
 }
