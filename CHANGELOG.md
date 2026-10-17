@@ -5,6 +5,102 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-10-18
+
+### Added
+
+- **Vendor × protocol configuration model** — `{ version: 3, vendor, protocol, targets }`,
+  with one bucket keyed `<vendor>/<protocol>` per combination. The legacy single
+  `mode` enum no longer exists.
+- **Capability catalog** — 17 official targets (13 full + 4 degraded), 8
+  `unsupported` metadata entries used only by the collapsed list, and 4 custom
+  targets (`custom/chat-completions`, `custom/responses`,
+  `custom/anthropic-messages`, `custom/search`). Fields, defaults, paths,
+  templates, and model locks all come from this single source.
+- **Four protocol implementations** — Chat Completions (Zhipu tool, Qwen
+  `enable_search`, OpenRouter server tool, OpenAI search model), Responses,
+  Anthropic Messages, and standalone search (DeepSeek / Kimi / Zhipu templates).
+- **Three-layer configuration page** — search kind → protocol → vendor. Fields
+  are rendered from the catalog; the vendor list contains only combinations that
+  really search, and unsupported ones are collapsed per shape.
+- **Custom targets** — a template picker performs a one-shot fill (the selection
+  resets, the template is never persisted); eight mapping fields
+  (`queryField`, `countField`, `resultsPath`, `urlField`, `titleField`,
+  `snippetField`, `dateField`, `contentField`) are authoritative, with simple
+  dot paths.
+- **Test connection** — `POST /api/web-search-diy/test` runs one real search with
+  the staged draft (query `OpenAI`, `maxResults = 3`, 60 s timeout, nothing
+  persisted) and returns `{ ok, sourceCount, sourceQuality, degraded, latencyMs,
+  contentPreview?, error? }`.
+- **Per-vendor credential probe** — `GET /api/web-search-diy/config` now also
+  returns `credentials: Record<vendor, boolean>` so the key badge follows the
+  selected vendor.
+- **Standalone digest limits** — `digestEntries` (default 8, 1–20) and
+  `digestSnippetChars` (default 200, 1–2000) control the `content` digest without
+  trimming `sources`.
+- **Kimi Responses `allowedDomains`** and the `kimi-k2.6` default model.
+- **Dual build** — Host ESM (`lib/index.js`) and Client CJS (`lib/client.js`)
+  via tsdown; the complete Host implementation now lives in `src/`.
+
+### Changed
+
+- Configuration is `$DSH_HOME/dsh-web-search-diy.json` v3; no settings section is
+  registered.
+- Client copy and field visibility follow the catalog; vendor defaults are no
+  longer hardcoded.
+- A custom Chat target's request variant is decided by the template and is not
+  exposed as a separate field; fields are filtered per variant.
+- The custom search engine is a free-input combo with common candidates; on the
+  Zhipu template a blank falls back to `search_std`.
+
+### Removed
+
+- The four legacy selectable modes (`responses`, `anthropic-messages`,
+  `zhipu-web-search`, `zhipu-chat-search`); existing files migrate to targets on
+  read.
+- `maxOutputTokens` on standalone targets (it never took effect), replaced by the
+  digest limits.
+- The `apiVersion` setting (the Anthropic version is fixed at `2023-06-01`).
+- The unused `@deepseek-ai/schemastery` dependency.
+
+### Fixed
+
+- **Qwen Anthropic-compatible endpoint** now performs `web_search_20250305`; the
+  required `x-anthropic-billing-header: cc_entrypoint=cli;` is attached
+  automatically.
+- **Zhipu Responses** points at its own base URL (`/api/v1`), not the Chat one.
+- **Kimi standalone `limit`** is clamped to 1–20 (previously 1–50).
+- **Custom Zhipu-template search** falls back to `search_std` when the engine is
+  blank, instead of sending no `search_engine`.
+- **Custom Responses** maps `blockedDomains` to OpenRouter's `excluded_domains`,
+  and a `:web_search` tool name generates the `parameters` block.
+- **Custom Chat fields** follow the variant chosen by the template.
+- **Degraded reasons** render once, on the vendor card, instead of repeating
+  below the list.
+- **`maxOutputTokens`** accepts the numeric string the form submits.
+
+### Migration
+
+- v1 flat files and v2 `modes` files migrate in memory; the first save writes v3
+  and backs the original up as `dsh-web-search-diy.json.v2.bak` (once).
+- Old keys are renamed: `responsesToolType` → `toolType`,
+  `responsesIncludeSources` → `includeSources`,
+  `responsesReasoningEffort` → `reasoningEffort`,
+  `anthropicThinking` → `thinking`, `anthropicEffort` → `effort`;
+  `apiVersion` is dropped.
+- `template` is not persisted; the first template seeds a new custom target as a
+  fill action.
+
+### Known limitations
+
+- OpenRouter Anthropic is implemented from documentation but not verified yet.
+- Kimi Chat (`$web_search`, retiring 2026-10-20) and the Kimi coding endpoint are
+  not wired in.
+- DeepSeek Responses only supports `deepseek-v4-pro` and returns no
+  `action.sources`.
+- Qwen Chat returns no sources; Qwen is wired to the Qwen AI Platform only.
+- Standalone search has no model turn.
+
 ## [1.1.1] - 2026-10-15
 
 ### Added
