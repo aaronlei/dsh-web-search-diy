@@ -1,7 +1,7 @@
 {
   "name": "dsh-web-search-diy",
-  "version": "1.1.1",
-  "description": "DSH web search provider with four selectable protocols: any OpenAI-compatible Responses API gateway exposing the native web_search tool, an Anthropic-compatible Messages API with the native web_search_20250305 server tool (DeepSeek by default, also Anthropic and Kimi), Zhipu's Web Search API (basic retrieval), and Zhipu's Web Search in Chat (answer augmentation). Registers a ctx.web search provider and overrides the shared searchProvider to it; UI copy follows the app language (zh / en).",
+  "version": "2.0.0",
+  "description": "DSH web search provider selected by vendor x protocol: Chat Completions, Responses, and Anthropic Messages with built-in search tools, plus the standalone search APIs of DeepSeek, Kimi, and Zhipu; four custom targets cover gateways; UI copy follows the app language (zh / en).",
   "icon": "./icon.svg",
   "license": "MIT",
   "author": "aaronlei",
@@ -11,9 +11,11 @@
   "type": "module",
   "main": "lib/index.js",
   "scripts": {
+    "build": "tsdown",
     "bundle": "tsdown",
     "watch": "tsdown --watch",
     "typecheck": "tsc --noEmit",
+    "pretest": "pnpm run build",
     "test": "node --test \"test/**/*.test.mjs\"",
     "test:client": "tsdown && node scripts/verify-client.mjs"
   },
@@ -24,18 +26,18 @@
     "./icon": "./icon.svg",
     "./package.json": "./package.json"
   },
-  "dependencies": {
-    "@deepseek-ai/schemastery": "^3.18.2"
-  },
+  "dependencies": {},
   "peerDependencies": {
     "@deepseek-ai/dsh-credentials": "^0.1.6-alpha.2 || ^0.2.0-rc.1",
     "@deepseek-ai/dsh-launch-environment": "^0.1.6-alpha.2 || ^0.2.0-rc.1",
     "@deepseek-ai/dsh-web": "^0.1.6-alpha.2 || ^0.2.0-rc.1"
   },
   "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.4",
     "@deepseek-ai/dsh-credentials": "^0.2.0-rc.2",
     "@deepseek-ai/dsh-launch-environment": "^0.2.0-rc.2",
     "@deepseek-ai/dsh-web": "^0.2.0-rc.2",
+    "@types/node": "^26.6.5",
     "@types/react": "~18.3.1",
     "react": "^18.2.0",
     "tsdown": "^0.23.0",

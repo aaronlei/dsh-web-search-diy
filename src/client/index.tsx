@@ -1,33 +1,13 @@
 /**
- * dsh-web-search-diy — client 配置卡片。
+ * dsh-web-search-diy — client 配置卡片（2.0：搜索形态 → 协议 → 厂商）。
  *
- * 注册到侧栏「插件」页 dsh-web-search-diy 组合包 `web-search-diy` 行的
- * `plugins.row.config` slot（dsh 0.1.6-alpha.2 起的席位；旧「设置 → 插件
- * → 插件配置」页的 `settings.plugin.item` slot 已随该版本移除）。
+ * 注册到侧栏「插件」页本插件行的 `plugins.row.config` 槽位；`summary` 是行下的一句话
+ * 简介，`page` 是带保存控件的整页表单。
  *
- * 行页面由宿主绘制标题与面包屑，本条目按 `view` 提供两种形态：
- * `summary` 是行下的一句话简介，`page` 是带保存控件的整页表单。
- *
- * 字段走官方 `ValueField` / `SecretField` 的形态（label 行 + 输入 + hint）。
- * 底部 footer 为 失败文案 + 放弃修改 + 保存，右对齐。
- * 文案经 locale 服务注册为自有命名空间，跟随 设置 → 语言（zh / en）。
- * 样式不复用官方构建产物的 hashed 类名（升级即失效），而是注入同规则的
- * 自有样式表，全部颜色走 `--dsw-alias-*` 主题变量，深浅色自动跟随。
- *
- * 卡片通过 host 的 /api/web-search-diy/config 端点读写配置：
- *   - mode / baseURL / apiKeyEnv / model / maxOutputTokens 及协议专属选项
- *     （responses: responsesReasoningEffort / responsesIncludeSources /
- *     responsesToolType；
- *     anthropic-messages: apiVersion / maxUses / anthropicThinking /
- *     anthropicEffort；智谱:
- *     searchEngine / count / searchRecencyFilter / contentSize /
- *     searchDomainFilter / searchIntent / requireSearch / searchPrompt）
- *     → 存 $DSH_HOME/dsh-web-search-diy.json
- *   - API key → host 经 credentials seam 只写存储（不落配置、不回显）
- * 编辑先暂存在草稿里（header 出现「未保存」），点保存才提交；保存即生效，无需重启。
- *
- * 本文件是 lib/client.js 的权威源（宿主消费的是已构建的客户端 bundle）：
- * 改完请跑 `pnpm run bundle`，再跑 `pnpm run test:client` 验证卡片契约。
+ * 2.0 起 Client 不再硬编码厂商默认值：`GET /api/web-search-diy/config` 下发完整
+ * catalog，本文件只负责三层选择、按 `fields` 渲染表单、把草稿按
+ * `{ vendor, protocol, ...fields }` 提交。字段值域是显示层副本，Host 的
+ * `buildConfigPatch` 才是权威校验。
  *
  * @module dsh-web-search-diy/client
  */
@@ -40,71 +20,47 @@ const ID = "dsh-web-search-diy";
 const NS = "dshWebSearchDiy";
 /** Service dependencies: the slot registry and the locale service. */
 const inject = ["slots", "locale"];
-/** Config endpoints the host half serves. */
+/** Config endpoint the host half serves. */
 const CONFIG_URL = "/api/web-search-diy/config";
 //#endregion
 
 //#region types
-/** The four protocols the card can select. */
-type Mode = "anthropic-messages" | "responses" | "zhipu-web-search" | "zhipu-chat-search";
-/** Protocol family: the key a mode's official values live under. */
-type Family = "responses" | "anthropic-messages" | "zhipu";
-/** One entry of the card's staged form plus the key's configured state. */
-interface Draft {
-	mode: Mode;
-	baseURL: string;
-	apiKeyEnv: string;
-	model: string;
-	maxOutputTokens: string;
-	apiVersion: string;
-	maxUses: string;
-	anthropicThinking: "default" | "disabled";
-	anthropicEffort: "" | "low" | "medium" | "high" | "xhigh" | "max";
-	searchEngine: "search_std" | "search_pro" | "search_pro_sogou" | "search_pro_quark";
-	count: string;
-	searchRecencyFilter: "noLimit" | "oneDay" | "oneWeek" | "oneMonth" | "oneYear";
-	contentSize: "medium" | "high";
-	reasoningEffort: "low" | "high" | "max";
-	responsesReasoningEffort: "" | "minimal" | "low" | "medium" | "high" | "xhigh";
-	responsesIncludeSources: boolean;
-	responsesToolType: "web_search" | "openrouter:web_search" | "web_search_20250305";
-	searchDomainFilter: string;
-	searchIntent: boolean;
-	requireSearch: boolean;
-	searchPrompt: string;
+/** The four protocols. */
+type Protocol = "chat-completions" | "responses" | "anthropic-messages" | "search";
+/** Search kind: in-protocol (model turn) or standalone (pure tool). */
+type Shape = "in-protocol" | "standalone";
+/** One staged field value. */
+type Primitive = string | boolean;
+/** One target's staged bucket. */
+type TargetDraft = Record<string, Primitive>;
+/** One catalog entry as served by GET /config. */
+interface CatalogEntry {
+	id: string;
+	kind: Shape;
+	protocol: Protocol;
+	vendor: string;
+	support: "full" | "degraded" | "unsupported" | "custom";
+	reason: string;
+	title: string;
+	docs: string;
+	defaults: Record<string, unknown>;
+	fields: string[];
+	modelLocked?: boolean;
+	hints: Record<string, string>;
+	templates?: { id: string; label: string; chatVariant?: string; toolType?: string; defaults: Record<string, unknown> }[];
 }
-/** The host's authoritative snapshot: a draft plus whether a key resolves. */
-interface Snapshot extends Draft {
+/** The GET /config payload. */
+interface Snapshot {
+	version: number;
+	selection: { vendor: string; protocol: Protocol };
+	target: TargetDraft;
+	targets: Record<string, TargetDraft>;
 	keyConfigured: boolean;
-}
-/** One mode's stored bucket, exactly as the host serves it. */
-interface Bucket {
-	baseURL?: string;
-	apiKeyEnv?: string;
-	model?: string;
-	maxOutputTokens?: number;
-	apiVersion?: string;
-	maxUses?: number;
-	anthropicThinking?: Draft["anthropicThinking"];
-	anthropicEffort?: Exclude<Draft["anthropicEffort"], "">;
-	searchEngine?: Draft["searchEngine"];
-	count?: number;
-	searchRecencyFilter?: Draft["searchRecencyFilter"];
-	contentSize?: Draft["contentSize"];
-	reasoningEffort?: Draft["reasoningEffort"];
-	responsesReasoningEffort?: Exclude<Draft["responsesReasoningEffort"], "">;
-	responsesIncludeSources?: boolean;
-	responsesToolType?: Draft["responsesToolType"];
-	searchDomainFilter?: string;
-	searchIntent?: boolean;
-	requireSearch?: boolean;
-	searchPrompt?: string;
-}
-/** One GET /config payload: the selected projection plus every bucket. */
-interface ConfigPayload extends Bucket {
-	mode?: Mode;
-	modes?: Record<string, Bucket>;
-	keyConfigured?: boolean;
+	/** Per-vendor credential state for the selected vendor's badge. */
+	credentials?: Record<string, boolean>;
+	catalog: CatalogEntry[];
+	vendors: string[];
+	protocols: string[];
 }
 /** Props shared by every input-shaped field. */
 interface ValueFieldProps {
@@ -125,9 +81,29 @@ interface ChoiceFieldProps {
 	label: string;
 	hint: string;
 	value: string;
-	options: readonly { value: string; label: string }[];
+	options: readonly { value: string; label: string; disabled?: boolean }[];
 	disabled?: boolean;
 	onEdit: (value: string) => void;
+}
+/** Props of a one-shot action picker. */
+interface SelectFieldProps {
+	id: string;
+	label: string;
+	hint: string;
+	value: string;
+	placeholder: string;
+	options: readonly { value: string; label: string }[];
+	onChange: (value: string) => void;
+}
+/** Props of a text field with a suggestion list (free input allowed). */
+interface ComboFieldProps {
+	id: string;
+	label: string;
+	hint: string;
+	text: string;
+	options: readonly string[];
+	placeholder?: string;
+	onEdit: (text: string) => void;
 }
 /** Props of the boolean switch field. */
 interface SwitchFieldProps {
@@ -167,12 +143,86 @@ interface PluginContext {
 }
 //#endregion
 
-//#region card stylesheet
+//#region field metadata
+/** Enum value ranges (display layer; the host validates authoritatively). */
+const ENUMS: Readonly<Record<string, readonly string[]>> = {
+	toolType: ["web_search", "openrouter:web_search", "web_search_20250305", "web_search_20260209", "web_search_20260318"],
+	thinking: ["default", "disabled"],
+	effort: ["", "low", "medium", "high", "xhigh", "max"],
+	searchEngine: ["search_std", "search_pro", "search_pro_sogou", "search_pro_quark"],
+	searchRecencyFilter: ["noLimit", "oneDay", "oneWeek", "oneMonth", "oneYear"],
+	contentSize: ["medium", "high"],
+	searchStrategy: ["turbo", "max", "agent", "agent_max"],
+	freshness: ["", "noLimit", "oneDay", "oneWeek", "oneMonth", "oneYear"],
+	searchContextSize: ["low", "medium", "high"],
+	externalWebAccess: ["", "true", "false"],
+	returnTokenBudget: ["", "default", "unlimited"],
+	responseInclusion: ["", "full", "excluded"]
+};
+/** Boolean fields. */
+const BOOLEANS = new Set(["includeSources", "includeContent", "requireSearch", "searchIntent", "forcedSearch", "oriQuestion", "imageCaption"]);
+/** Numeric fields. */
+const NUMBERS = new Set(["maxOutputTokens", "maxUses", "count", "maxResults", "maxTotalResults", "maxCharacters", "imageMaxResults", "timeoutSeconds", "digestEntries", "digestSnippetChars"]);
+
 /**
- * Styles mirroring the official PluginCard.module.css and fields.module.css
- * rules, under our own `dwsd-` class prefix. Aliases only — no literals —
- * so dark/light theming stays owned by the app.
+ * 自定义网关的搜索引擎取值：智谱、OpenRouter 与常见自建/第三方引擎放在一起，
+ * 只作为候选；输入框仍接受任意值。智谱模板下留空时回落到 search_std（该接口必填）。
  */
+const CUSTOM_SEARCH_ENGINES: readonly string[] = [
+	"search_std", "search_pro", "search_pro_sogou", "search_pro_quark",
+	"auto", "native", "exa", "firecrawl", "parallel", "perplexity",
+	"searxng", "google", "bing", "brave", "duckduckgo", "tavily"
+];
+
+/**
+ * 自定义 Chat 的四个变体各自实际使用的搜索字段。保存时 Host 按并集校验，
+ * 但 UI 只渲染当前变体相关的字段，避免在 OpenRouter 变体下误填智谱参数。
+ */
+const CHAT_VARIANT_FIELDS: Readonly<Record<string, readonly string[]>> = {
+	zhipu: ["searchEngine", "count", "searchRecencyFilter", "contentSize", "searchDomainFilter", "searchIntent", "requireSearch", "searchPrompt", "reasoningEffort"],
+	qwen: ["searchStrategy", "forcedSearch", "freshness", "assignedSiteList", "searchExtension", "promptIntervene"],
+	openrouter: ["engine", "mode", "maxResults", "maxUses", "maxTotalResults", "searchContextSize", "maxCharacters", "userLocation", "allowedDomains", "excludedDomains", "xSearch"],
+	"openai-search-model": []
+};
+/** 变体专属字段的并集；这些键只对声明它们的变体渲染。 */
+const CHAT_VARIANT_ONLY = new Set(Object.values(CHAT_VARIANT_FIELDS).flat());
+
+/**
+ * Numeric fields must reach the host as JSON numbers; a blank entry stays blank so
+ * the host sees the "clear this key" signal instead of storing 0.
+ */
+const wireValue = (key: string, value: Primitive): Primitive | number =>
+	NUMBERS.has(key) && typeof value === "string" && /^\d+$/u.test(value.trim()) ? Number(value.trim()) : value;
+/** Fields folded into the advanced section. */
+const ADVANCED = new Set([
+	"toolType", "includeSources", "reasoningEffort", "thinking", "effort", "searchContextSize",
+	"allowedDomains", "blockedDomains", "excludedDomains", "userLocation", "maxUses",
+	"searchRecencyFilter", "contentSize", "searchDomainFilter", "searchIntent", "requireSearch",
+	"searchPrompt", "searchStrategy", "forcedSearch", "freshness", "assignedSiteList",
+	"searchExtension", "promptIntervene", "engine", "mode", "maxResults", "maxTotalResults",
+	"maxCharacters", "includeContent", "timeoutSeconds", "oriQuestion", "localization", "chatVariant", "digestEntries", "digestSnippetChars",
+	"path", "queryField", "countField", "resultsPath", "urlField", "titleField", "snippetField",
+	"dateField", "contentField", "externalWebAccess", "returnTokenBudget", "searchContentTypes",
+	"imageMaxResults", "imageCaption", "responseInclusion", "xSearch"
+]);
+/** Credential references per vendor; the picker only lists the current vendor's names. */
+const CREDENTIAL_REFS: Readonly<Record<string, readonly string[]>> = {
+	deepseek: ["DEEPSEEK_API_KEY", "DEEPSEEK_API_SEARCH_KEY"],
+	kimi: ["MOONSHOT_API_KEY", "KIMI_API_KEY", "KIMI_CODING_API_KEY"],
+	zhipu: ["ZAI_CODING_CN_API_KEY", "ZAI_API_KEY", "ZHIPU_API_KEY"],
+	qwen: ["QWEN_TOKEN_PLAN_API_KEY", "QWEN_TOKEN_PLAN_CN_API_KEY", "DASHSCOPE_API_KEY"],
+	openai: ["OPENAI_API_KEY"],
+	anthropic: ["ANTHROPIC_API_KEY"],
+	openrouter: ["OPENROUTER_API_KEY"]
+};
+/** Every reference, for the custom vendor (its gateway is unknown). */
+const ALL_CREDENTIAL_REFS: readonly string[] = [...new Set(Object.values(CREDENTIAL_REFS).flat())];
+/** Protocol display order. */
+const PROTOCOLS: readonly Protocol[] = ["chat-completions", "responses", "anthropic-messages", "search"];
+//#endregion
+
+//#region card stylesheet
+/** Styles mirroring the official card rules under our own `dwsd-` prefix. */
 const CARD_CSS = [
 	".dwsd-body{margin:0;padding-bottom:8px}",
 	".dwsd-status{color:var(--dsw-alias-label-tertiary);margin:12px 0 0;font-size:12px;line-height:1.5}",
@@ -201,14 +251,28 @@ const CARD_CSS = [
 	".dwsd-choice{cursor:pointer;border-radius:6px;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:8px;min-width:0;padding:6px;display:grid}",
 	".dwsd-choice:hover{background:var(--dsw-alias-bg-layer-4)}",
 	".dwsd-choice input{accent-color:var(--dsw-alias-brand-primary);margin:0}",
+	".dwsd-choiceDisabled{opacity:.5;cursor:default}",
 	".dwsd-choiceLabel{color:var(--dsw-alias-label-primary);font-size:13px;line-height:1.5}",
+	".dwsd-choiceReason{color:var(--dsw-alias-label-tertiary);margin-left:8px;font-size:12px;line-height:1.5}",
+	".dwsd-combo{position:relative;align-items:center;gap:6px;display:flex}",
+	".dwsd-combo .dwsd-input{flex:1;min-width:0}",
+	".dwsd-comboToggle{border:.5px solid var(--dsw-alias-border-l4);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary);border-radius:8px;cursor:pointer;font:inherit;padding:0 10px;height:34px;line-height:1}",
+	".dwsd-comboToggle:hover{color:var(--dsw-alias-label-primary)}",
+	".dwsd-comboList{z-index:20;background:var(--dsw-alias-bg-layer-3);border:.5px solid var(--dsw-alias-border-l4);border-radius:8px;max-height:240px;margin:0;padding:4px;list-style:none;position:absolute;top:38px;left:0;right:0;overflow:auto}",
+	".dwsd-comboList button{background:0 0;border:0;border-radius:6px;color:var(--dsw-alias-label-primary);cursor:pointer;font:inherit;font-size:13px;line-height:1.5;padding:6px 8px;text-align:left;width:100%}",
+	".dwsd-comboList button:hover{background:var(--dsw-alias-bg-layer-4)}",
 	".dwsd-switchRow{color:var(--dsw-alias-label-primary);justify-content:space-between;align-items:center;gap:16px;font-size:13px;line-height:1.5;display:flex}",
 	".dwsd-switch{box-sizing:border-box;background:var(--dsw-alias-border-l3);cursor:pointer;border:0;border-radius:10px;flex:none;width:36px;height:20px;padding:2px;position:relative}",
 	".dwsd-switchOn{background:var(--dsw-alias-brand-primary)}",
 	".dwsd-switch:disabled{cursor:default;opacity:.5}",
 	".dwsd-switch:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}",
 	".dwsd-thumb{background:var(--dsw-alias-label-primary-foreground);border-radius:50%;width:16px;height:16px;transition:transform .12s;display:block}",
-	".dwsd-switchOn .dwsd-thumb{transform:translate(16px)}"
+	".dwsd-switchOn .dwsd-thumb{transform:translate(16px)}",
+	".dwsd-advanced{margin-top:4px}",
+	".dwsd-advanced>summary{cursor:pointer;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1.5;padding:8px 0}",
+	".dwsd-advanced>summary:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}",
+	".dwsd-notice{margin:0 0 4px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:1.5}",
+	".dwsd-confirm{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}"
 ].join("");
 /** Idempotently install the card stylesheet into the document head. */
 function injectStyles(): void {
@@ -223,196 +287,443 @@ function injectStyles(): void {
 }
 //#endregion
 
-//#region locales
-/** Simplified Chinese copy. */
 const zh: Record<string, string> = {
 	title: "自定义网页搜索",
-	description: "多协议网页搜索提供方：OpenAI 兼容 Responses API、DeepSeek 官方 Anthropic 兼容 Messages API、智谱基础检索与问答增强。",
-	expand: "展开设置",
-	collapse: "收起设置",
+	description: "多协议网页搜索：协议内置（Chat Completions / Responses / Anthropic Messages）与纯工具搜索，按厂商选择。",
 	loading: "正在读取配置…",
 	loadFailed: "读取配置失败；请确认插件服务可用后重试。",
 	unsaved: "未保存",
 	save: "保存",
 	saving: "保存中…",
 	discard: "放弃修改",
-	mode: "协议模式 mode",
-	modeHint: "切换搜索协议时自动填入该模式的官方接口地址（自定义地址不会被覆盖）。",
-	modeResponses: "OpenAI 兼容（Responses API + web_search）",
-	modeAnthropic: "Anthropic 兼容（ Messages API + web_search，DeepSeek 官方采用）",
-	modeZhipuWeb: "智谱基础检索（Web Search API）",
-	modeZhipuChat: "智谱问答增强（Web Search in Chat）",
-	baseURL: "接口地址 baseURL",
-	baseURLHint: "切换协议时自动填入官方地址；仍可改为任意自定义地址，留空保存即恢复该模式默认地址。DeepSeek 官方模式留空时还会回退到环境变量 DEEPSEEK_SEARCH_BASE_URL。",
-	baseURLHintResponses: "该端点必须确实实现 Responses API（插件会向 {baseURL}/responses 发请求），且模型支持内置 web_search 工具。可用端点：千问AI平台 https://maas.qianwenaiapi.com/compatible-mode/v1（默认）、Kimi https://api.moonshot.cn/v1、OpenAI 官方。注意千问的 Anthropic 兼容端点（/apps/anthropic）仅支持 Function Call、不执行服务端 web_search，因此千问应使用本模式。",
-	apiKeyEnv: "凭据引用 apiKeyEnv",
-	apiKeyEnvHint: "留空则使用当前协议模式的默认引用（OpenAI 兼容：QWEN_TOKEN_PLAN_API_KEY；DeepSeek 官方：DEEPSEEK_API_KEY；智谱：ZAI_CODING_CN_API_KEY，其后回退 ZHIPU_API_KEY）。切换协议时，属于其他服务商家族的引用会自动换成新协议的默认值，自定义引用名则保留。",
-	model: "模型 model",
-	modelHint: "留空使用默认；OpenAI 兼容模式为 deepseek-v4-flash-0731，DeepSeek 官方为 deepseek-flash，智谱问答增强为 glm-5.3-flash（配思考强度 low）。免费档 glm-4.7-flash 经常限流不可用，不建议。",
-	maxOutputTokens: "最大输出 tokens",
-	maxOutputTokensHint: "单次搜索回合（推理 + 工具调用 + 回答）的输出上限；留空使用该模式默认值（DeepSeek 官方 65536，其余模式 4096）。这只是上限、不预扣费，实际按生成量计费；设得过小会把回合截断、搜索轮次被砍。",
-	apiVersion: "协议版本 apiVersion",
-	apiVersionHint: "仅 DeepSeek 官方模式生效；作为 anthropic-version 请求头发送，官方默认 2023-06-01；留空保存恢复默认。",
-	maxUses: "搜索次数上限 maxUses",
-	maxUsesHint: "仅 DeepSeek 官方模式生效；单次请求内 web_search 服务端工具最多可调用几次，官方默认 5；留空保存恢复默认。",
-	anthropicThinking: "思考模式",
-	anthropicThinkingHint: "仅 Anthropic 兼容模式生效；该端点忽略推理档位与思考预算（实测）。关闭思考会跳过推理过程并省下思考 token（思考越长省得越多，短查询时延差别不大）。部分模型始终思考（如智谱 GLM-5.3），传 disabled 会被 400 拒；插件会自动去掉该开关重试一次。",
-	searchEngine: "搜索引擎 searchEngine",
-	searchEngineHint: "仅智谱模式生效；不同引擎单价不同。",
-	engineStd: "search_std（智谱自研 · 基础）",
-	enginePro: "search_pro（智谱自研 · 高级）",
-	engineSogou: "search_pro_sogou（搜狗）",
-	engineQuark: "search_pro_quark（夸克）",
-	count: "结果条数 count",
-	countHint: "单次搜索返回的结果条数（1-50）；请求自带上限时优先使用请求值；留空保存恢复默认。",
-	countSogouNote: "search_pro_sogou 仅支持 10/20/30/40/50。",
-	countQuarkNote: "search_pro_quark 不支持该参数，填写后将被忽略。",
-	searchRecencyFilter: "时间范围 searchRecencyFilter",
-	searchRecencyHint: "仅智谱模式生效；限定网页发布时间窗口。",
-	recencyNoLimit: "不限",
-	recencyOneDay: "一天内",
-	recencyOneWeek: "一周内",
-	recencyOneMonth: "一月内",
-	recencyOneYear: "一年内",
-	contentSize: "摘要字数 contentSize",
-	contentSizeHint: "仅智谱模式生效；控制网页摘要的信息量。",
-	sizeMedium: "medium（摘要）",
-	sizeHigh: "high（详细）",
-	reasoningEffort: "思考强度 reasoningEffort",
-	reasoningEffortHint: "仅问答增强模式生效；low 让思考型模型（如 GLM-5.3-Flash）保持快速，复杂任务可调高。",
-	effortMinimal: "minimal（最省）",
-	effortLow: "low（快速）",
-	effortMedium: "medium（均衡）",
-	effortHigh: "high（增强）",
-	effortXhigh: "xhigh（超强）",
-	effortMax: "max（深度）",
-	effortDefault: "默认（随模型，不传档位）",
-	thinkingOff: "关闭思考（更快、更省）",
-	responsesReasoningEffort: "推理档位 reasoning.effort",
-	responsesReasoningEffortHint: "仅 OpenAI 兼容模式生效；透传 OpenAI 标准 reasoning.effort，这里列出的是官方全集。档位因模型而异：模型不认识所选档位会直接拒（400），这时插件自动去掉该档位重试一次、改用网关默认档，不会让整次搜索失败。默认不传，随模型自身模式。",
-	anthropicEffort: "思考档位 output_config.effort",
-	anthropicEffortHint: "仅 Anthropic 兼容模式生效；透传官方 output_config.effort。low/medium/high 多数模型都认，xhigh 与 max 只有部分模型支持；被拒（400）时插件自动去掉该档位重试一次。默认不传，随模型自身档位。",
-	responsesIncludeSources: "请求完整来源 include",
-	responsesIncludeSourcesHint: "仅 OpenAI 兼容模式生效；发送 include: [\"web_search_call.action.sources\"] 取回完整来源列表——官方 API 里该字段是 include-only，不传就只剩引用注解里的少量来源。默认开启；网关拒绝未知参数时再关闭。",
-	responsesToolType: "搜索工具声明名 tools[].type",
-	responsesToolTypeHint: "仅 OpenAI 兼容模式生效；决定 tools[] 里声明的工具名。名字不对时端点可能根本不执行搜索、响应里没有任何搜索块（报错消息会列出实际观测到的 output item 类型）。web_search：OpenAI 官方拼写，多数兼容端点通用（默认）；openrouter:web_search：OpenRouter 的规范拼写，其 /tools schema 声明它在所有支持的 API 格式上稳定可用；web_search_20250305：OpenRouter 在 responses 格式上同时接受的别名（Anthropic 风格名字），前两者无效时可试。",
-	searchDomainFilter: "域名白名单 searchDomainFilter",
-	searchDomainHint: "仅智谱模式生效；只返回指定域名（如 www.example.com）的结果，留空不限。",
-	domainQuarkNote: "search_pro_quark 不支持该参数，填写后将被忽略。",
-	searchIntent: "意图识别 searchIntent",
-	searchIntentHint: "仅智谱基础检索生效；关闭则跳过意图识别直接搜索。",
-	searchIntentOn: "开启",
-	searchIntentOff: "关闭",
-	requireSearch: "强制搜索 requireSearch",
-	requireSearchHint: "仅智谱问答增强生效；开启后无搜索结果时接口拒绝作答，确保回答来自实时检索。默认关闭，与官方默认一致。",
-	searchPrompt: "搜索提示词 searchPrompt",
-	searchPromptHint: "仅智谱问答增强生效；定制搜索结果的整合方式，留空使用官方默认。",
-	invalidNumber: "请填正整数；留空表示使用默认值。",
-	invalidCount: "请填 1-50 的整数；留空表示使用默认值。",
+	shape: "搜索方式",
+	shapeInProtocol: "协议内置搜索",
+	shapeStandalone: "纯工具搜索",
+	protocol: "协议",
+	vendor: "厂商",
+	advanced: "高级选项",
+	fieldPlaceholder: "留空使用默认值",
+	unsupported: "不支持",
+	full: "完整",
+	degraded: "降级",
+	custom: "自定义",
+	unsupportedNotice: "该组合不可用：",
+	unsupportedVendors: "本版未接入的组合（不代表该厂商整体不可用）",
+	customNotice: "自定义接入需自行确认网关行为；保存后可直接测试。",
+	fillFromTemplate: "从模板填充（仅供参考）",
+	templateFillHint: "选择模板只把该厂商的默认值填入下面的配置项；模板本身不会保存，选完下拉会清空。",
+	templatePlaceholder: "选择模板…",
+	templateUsed: "刚才用了：{name}",
+	templateOverwrite: "选择「{name}」会用它覆盖当前配置（包括已保存的值）",
+	templateApply: "应用模板",
+	templateCancel: "取消",
+	resetToSaved: "重置为已保存配置",
+	test: "测试连接",
+	testing: "测试中…",
+	testOk: "连接成功",
+	testFailed: "测试失败",
+	testSources: "个来源",
+	testDegraded: "降级组合",
+	testNoSourcesByDesign: "该组合不返回来源",
+	testNoSourcesPartial: "未返回来源：可能搜索未执行，或本次没有可引用页面",
+	testNoSourcesFull: "未返回来源，请检查搜索工具名与端点",
+	modelLockedHint: "该组合只支持此模型，不可修改。",
 	apiKey: "API 密钥",
 	apiKeyHint: "经凭据服务只写存储（~/.dsh/.credentials.yaml），不写入配置文件。留空表示保持当前密钥。",
-	apiKeySet: "已配置密钥。",
-	apiKeyUnset: "未配置密钥；配置之前搜索不可用。"
+	apiKeySet: "已配置密钥",
+	apiKeyUnset: "未配置密钥",
+	apiKeyByReference: "取决于凭据引用",
+	invalidNumber: "请填正整数；留空使用默认值。",
+	invalidCount: "请填 1-50 的整数（Kimi 1-20）；留空使用默认值。",
+	protocolChat: "Chat Completions",
+	protocolResponses: "Responses",
+	protocolAnthropic: "Anthropic Messages",
+	protocolSearch: "纯工具搜索",
+	vendorDeepseek: "DeepSeek",
+	vendorKimi: "Kimi",
+	vendorZhipu: "智谱",
+	vendorQwen: "千问",
+	vendorOpenai: "OpenAI",
+	vendorAnthropic: "Anthropic",
+	vendorOpenrouter: "OpenRouter",
+	vendorCustom: "自定义",
+	opt_thinking_default: "default（跟随模型）",
+	opt_thinking_disabled: "disabled（关闭思考，更快更省）",
+	opt_effort_empty: "不传（跟随模型）",
+	opt_effort_low: "low（低）",
+	opt_effort_medium: "medium（中）",
+	opt_effort_high: "high（高）",
+	opt_effort_xhigh: "xhigh（超高）",
+	opt_effort_max: "max（最高）",
+	opt_searchEngine_search_std: "search_std（智谱自研 · 基础）",
+	opt_searchEngine_search_pro: "search_pro（智谱自研 · 高级）",
+	opt_searchEngine_search_pro_sogou: "search_pro_sogou（搜狗）",
+	opt_searchEngine_search_pro_quark: "search_pro_quark（夸克）",
+	opt_searchRecencyFilter_noLimit: "不限",
+	opt_searchRecencyFilter_oneDay: "一天内",
+	opt_searchRecencyFilter_oneWeek: "一周内",
+	opt_searchRecencyFilter_oneMonth: "一月内",
+	opt_searchRecencyFilter_oneYear: "一年内",
+	opt_contentSize_medium: "medium（摘要）",
+	opt_contentSize_high: "high（详细）",
+	opt_searchStrategy_turbo: "turbo（极速）",
+	opt_searchStrategy_max: "max（深度）",
+	opt_searchStrategy_agent: "agent（智能体）",
+	opt_searchStrategy_agent_max: "agent_max（智能体 · 深度）",
+	opt_freshness_empty: "不传",
+	opt_freshness_noLimit: "不限",
+	opt_freshness_oneDay: "一天内",
+	opt_freshness_oneWeek: "一周内",
+	opt_freshness_oneMonth: "一月内",
+	opt_freshness_oneYear: "一年内",
+	opt_searchContextSize_low: "low（少量）",
+	opt_searchContextSize_medium: "medium（均衡）",
+	opt_searchContextSize_high: "high（更多）",
+	opt_externalWebAccess_empty: "跟随端点默认（开启）",
+	opt_externalWebAccess_true: "true（实时联网）",
+	opt_externalWebAccess_false: "false（仅缓存/索引）",
+	opt_returnTokenBudget_empty: "不传",
+	opt_returnTokenBudget_default: "default（默认预算）",
+	opt_returnTokenBudget_unlimited: "unlimited（不设上限）",
+	opt_responseInclusion_empty: "默认（full）",
+	opt_responseInclusion_full: "full（完整返回）",
+	opt_responseInclusion_excluded: "excluded（省略已消费块）",
+	hint_baseURL: "接口地址前缀，可填官方或自建网关。留空使用该组合的官方默认端点；协议路径由插件拼接，不要重复写 /responses 之类的路径。",
+	hint_apiKeyEnv: "凭据引用名，即凭据服务或环境变量里的键名。留空使用该组合的默认引用链（如 ZAI_CODING_CN_API_KEY → ZHIPU_API_KEY）。",
+	hint_model: "模型名，必须属于该端点且支持内置搜索。留空用组合默认模型；模型不支持搜索时请求不会执行搜索。",
+	hint_maxOutputTokens: "单次搜索回合的输出上限（推理 + 工具调用 + 回答）。只是上限、不预扣费；设得过小会截断回合，导致搜索轮次被砍。",
+	hint_toolType: "tools[] 里声明的搜索工具名，决定端点是否执行搜索。默认值按厂商给出；可从下拉选择常用写法，也可手填网关自定义的名称。填错时响应里没有搜索块。",
+	hint_includeSources: "向端点请求完整来源列表（include）。OpenAI 官方该字段是 include-only，关闭后只剩少量引用注解；不支持该参数的网关可关闭。",
+	hint_reasoningEffort: "推理档位（reasoning.effort）。档位集合因模型而异，不支持时返回 400，插件会自动去掉该参数重试；留空不发送。",
+	hint_searchContextSize: "搜索结果注入模型的上下文量：low 省 token、medium 均衡、high 更完整。通常影响时延与费用，不保证来源数量。",
+	hint_allowedDomains: "只返回这些域名的结果，逗号分隔，不带 https:// 前缀。OpenAI 最多 100 个；与 blockedDomains 互斥（Anthropic 同时发会 400，插件优先 allowed）。",
+	hint_blockedDomains: "屏蔽这些域名，逗号分隔，不带协议前缀。与 allowedDomains 互斥；各厂商支持程度不同，不支持时会被忽略。",
+	hint_excludedDomains: "排除这些域名（OpenRouter）。部分引擎与 allowedDomains 互斥：Exa 可同时使用，其他引擎可能返回 400。",
+	hint_userLocation: "两字母国家代码（如 US），用于地域偏置。部分端点支持，不支持时忽略；Anthropic 还支持城市/时区，这里只开放国家码。",
+	hint_maxUses: "单次请求最多调用几次搜索工具。达到后端点返回错误结果而不是继续搜索，用于控制费用与时延。",
+	hint_thinking: "default 跟随模型；disabled 关闭思考，更快更省。部分模型始终思考，传 disabled 会 400，插件会去掉该开关重试。",
+	hint_effort: "Anthropic 的 output_config.effort 档位。不同模型支持的档位不同，被拒时插件自动去掉重试；留空不发送。",
+	hint_searchEngine: "智谱搜索引擎，单价与能力不同：std 基础、pro 高级、sogou 与夸克各有配额和结果限制。",
+	hint_searchEngineCustom: "搜索引擎取值由网关定义。这里只列常见写法：智谱 search_std / search_pro，OpenRouter auto / exa / perplexity，自建 searxng / google / bing 等；可直接输入其他值。智谱模板留空时按 search_std 发送（该接口必填），非智谱模板不使用此参数。",
+	hint_count: "结果条数：智谱与 DeepSeek 为 1-50，Kimi 为 1-20（超出会被钳制）。seam 请求带 maxResults 时优先用请求值，配置值只在请求未指定时生效；它与「摘要条数」相互独立。",
+	hint_searchRecencyFilter: "只返回该时间窗内发布的网页。窗口越窄召回越少，但对时效性问题更准。",
+	hint_contentSize: "摘要长度：medium 短摘要省 token，high 提供更详细正文但费用更高。",
+	hint_searchDomainFilter: "限定来源域名，逗号分隔，不带协议前缀。留空不限；部分引擎不支持该参数，会被忽略。",
+	hint_searchIntent: "先识别查询意图再检索。关闭可直接搜索、响应更快，但复杂问句的召回可能变差。",
+	hint_requireSearch: "没有搜索结果时拒绝作答，保证回答来自实时检索。默认关闭；开启后可能因无结果直接失败，而不是用模型知识回答。",
+	hint_searchPrompt: "结果融合提示词，控制如何把搜索内容整合进回答。留空使用官方默认。",
+	hint_searchStrategy: "千问搜索策略：turbo 极速、max 深度、agent/agent_max 智能体。策略越深越慢、费用越高。",
+	hint_forcedSearch: "强制本次请求执行搜索，即使模型判断不需要。用于必须联网的场景。",
+	hint_freshness: "只返回该时间窗内的结果（千问）。留空不限制；与智谱时间范围字段语义相同。",
+	hint_assignedSiteList: "限定站点列表，逗号分隔（千问）。留空不限；与智谱的域名限定作用类似。",
+	hint_searchExtension: "千问的搜索扩展参数，原样透传。留空不发送；具体取值以千问文档为准。",
+	hint_promptIntervene: "千问的提示词干预参数，原样透传。留空不发送；非必要不建议修改。",
+	hint_engine: "OpenRouter 搜索引擎：auto 自动（有原生则用原生，否则 Exa）、native 模型自带、exa/firecrawl/parallel/perplexity 第三方。不同引擎计费与能力不同。",
+	hint_mode: "引擎专属模式：Exa 为 instant/fast/auto/deep-lite/deep/deep-reasoning，Parallel 为 turbo/fast/basic/advanced。留空用引擎默认。",
+	hint_maxCharacters: "单条结果的正文/摘要字符上限。与 searchContextSize 同时设置时本项优先；留空由引擎自适应。",
+	hint_externalWebAccess: "是否抓取实时网页：留空跟随端点默认（开启），false 只用缓存/索引，适合需要可复现结果或合规限制的场景。",
+	hint_returnTokenBudget: "单次搜索允许返回的内容预算：default 标准、unlimited 不设上限（更慢更贵）。仅 GPT-5+ 推理模型支持。",
+	hint_searchContentTypes: "请求的结果类型，逗号分隔：text 文本、image 图片。含 image 时同时返回图片结果，需要配合图片结果数与说明。",
+	hint_imageMaxResults: "图片结果数量。0 或不填表示不请求图片；仅在搜索内容类型含 image 时生效。",
+	hint_imageCaption: "为图片结果请求简短说明。开启后便于筛选与展示，响应体略大。",
+	hint_responseInclusion: "搜索结果块在响应中的呈现：full 完整返回、excluded 省略已被代码执行消费的块以节省输出 token。仅 web_search_20260318+ 支持。",
+	hint_xSearch: "OpenRouter 与 xAI 的 X/Twitter 搜索参数，JSON 对象，如 {\"allowed_x_handles\":[\"OpenRouterAI\"]}。留空关闭。",
+	hint_maxResults: "单次搜索返回的结果上限（OpenRouter 1-25，部分引擎 1-20）。与 maxTotalResults 配合控制成本与上下文。",
+	hint_maxTotalResults: "一次请求内所有搜索累计的结果上限。达到后端点提示模型停止继续搜索。",
+	hint_includeContent: "同时返回网页正文。会显著增加响应体与 token 消耗；只需要标题与摘要时保持关闭。智谱模板下开启会把 `content_size` 固定为 high，需要自定义摘要长度时关闭本开关。",
+	hint_digestEntries: "拼给调用方的 content 摘要最多包含几条结果（1-20）。只影响摘要文本，不裁剪 sources；留空用默认 8。",
+	hint_digestSnippetChars: "摘要里每条结果最多保留多少字符（1-2000），超出部分截断；留空用默认 200。",
+	hint_timeoutSeconds: "请求超时秒数（Kimi 1-60）。超时后本次搜索失败；长查询可适当调高。",
+	hint_oriQuestion: "附带原始问题，便于服务端结合上下文排序。仅 DeepSeek 搜索接口支持。",
+	hint_localization: "本地化 IP，用于地域排序。DeepSeek 要求合法 IP 地址；留空不发送，填非 IP 会 400。",
+	hint_path: "请求路径，相对 baseURL。自定义网关必填；内置 target 由协议固定，一般不改。",
+	hint_queryField: "请求体里查询字段的名字。留空用模板默认（智谱 search_query、DeepSeek query、Kimi text_query）。",
+	hint_countField: "请求体里条数字段的名字。留空用模板默认（智谱与 DeepSeek 为 count、Kimi 为 limit）。",
+	hint_resultsPath: "响应里结果数组的点路径，如 data.items。留空用模板默认（智谱 search_result、DeepSeek results、Kimi search_results）。",
+	hint_urlField: "结果项里 URL 字段的名字。留空用模板默认（智谱 link，其余 url）。",
+	hint_titleField: "结果项里标题字段的名字。留空用模板默认（title）。",
+	hint_snippetField: "结果项里摘要字段的名字。留空用模板默认（智谱 content，其余 snippet）。",
+	hint_dateField: "结果项里日期字段的名字。留空表示不解析日期；仅当响应包含日期字段时填写。",
+	hint_contentField: "结果项里正文字段的名字。留空表示不拼接正文；用于生成 content 摘要。",
+	field_baseURL: "接口地址",
+	field_apiKeyEnv: "凭据引用",
+	field_model: "模型",
+	field_maxOutputTokens: "输出上限",
+	field_count: "结果条数",
+	field_maxUses: "搜索次数上限",
+	field_searchEngine: "搜索引擎",
+	field_searchRecencyFilter: "时间范围",
+	field_contentSize: "摘要长度",
+	field_searchIntent: "意图识别",
+	field_searchDomainFilter: "域名限定",
+	field_requireSearch: "强制搜索",
+	field_searchPrompt: "搜索提示词",
+	field_reasoningEffort: "思考强度",
+	field_thinking: "思考模式",
+	field_effort: "思考档位",
+	field_includeSources: "请求完整来源",
+	field_includeContent: "返回正文",
+	field_digestEntries: "摘要条数",
+	field_digestSnippetChars: "摘要每条字符上限",
+	field_timeoutSeconds: "超时秒数",
+	field_oriQuestion: "原始问题",
+	field_localization: "本地化 IP",
+	field_path: "请求路径",
+	field_template: "兼容模板",
+	field_toolType: "搜索工具名",
+	field_queryField: "查询字段名",
+	field_countField: "条数字段名",
+	field_resultsPath: "结果数组路径",
+	field_urlField: "URL 字段名",
+	field_titleField: "标题字段名",
+	field_snippetField: "摘要字段名",
+	field_dateField: "日期字段名",
+	field_contentField: "正文字段名",
+	field_searchContextSize: "搜索上下文大小",
+	field_allowedDomains: "允许域名",
+	field_blockedDomains: "屏蔽域名",
+	field_excludedDomains: "排除域名",
+	field_userLocation: "用户地区",
+	field_engine: "搜索引擎",
+	field_mode: "引擎模式",
+	field_maxCharacters: "单结果最大字符数",
+	field_externalWebAccess: "实时联网",
+	field_returnTokenBudget: "返回 token 预算",
+	field_searchContentTypes: "搜索内容类型",
+	field_imageMaxResults: "图片结果数",
+	field_imageCaption: "图片说明",
+	field_responseInclusion: "响应包含模式",
+	field_xSearch: "X 搜索参数（JSON）",
+	field_maxResults: "单次结果数",
+	field_maxTotalResults: "总结果数",
+	field_searchStrategy: "搜索策略",
+	field_forcedSearch: "强制搜索",
+	field_freshness: "时间范围",
+	field_assignedSiteList: "限定站点",
+	field_searchExtension: "搜索扩展",
+	field_promptIntervene: "提示词干预",
 };
 /** English copy. */
 const en: Record<string, string> = {
 	title: "Custom web search",
-	description: "A multi-protocol web search provider: OpenAI-compatible Responses API, DeepSeek official Anthropic-compatible Messages API, Zhipu Web Search API, and Web Search in Chat.",
-	expand: "Show settings",
-	collapse: "Hide settings",
+	description: "Multi-protocol web search: in-protocol (Chat Completions / Responses / Anthropic Messages) and standalone search, selected by vendor.",
 	loading: "Reading the configuration…",
 	loadFailed: "The configuration could not be read; retry once the plugin service is available.",
 	unsaved: "Unsaved",
 	save: "Save",
 	saving: "Saving…",
 	discard: "Discard",
-	mode: "Protocol (mode)",
-	modeHint: "Switching the protocol fills in that mode's official endpoint (a customized endpoint is never overwritten).",
-	modeResponses: "OpenAI-compatible (Responses API + web_search)",
-	modeAnthropic: "Anthropic-compatible (Messages API + web_search, used by DeepSeek official)",
-	modeZhipuWeb: "Zhipu Web Search API (basic retrieval)",
-	modeZhipuChat: "Zhipu Web Search in Chat (answer augmentation)",
-	baseURL: "Endpoint (baseURL)",
-	baseURLHint: "Auto-filled with the official endpoint on protocol switch; still yours to override — saving it blank restores the mode default. In DeepSeek official mode a blank endpoint also falls back to the DEEPSEEK_SEARCH_BASE_URL environment variable.",
-	baseURLHintResponses: "This endpoint must actually implement the Responses API (the plugin POSTs to {baseURL}/responses) and its model must expose the built-in web_search tool. Supported endpoints: Qwen AI Platform https://maas.qianwenaiapi.com/compatible-mode/v1 (the default), Kimi https://api.moonshot.cn/v1, OpenAI. Note that Qwen's Anthropic-compatible surface (/apps/anthropic) supports function calling only and never runs server-side web_search, so Qwen requires this mode.",
-	apiKeyEnv: "Credential reference (apiKeyEnv)",
-	apiKeyEnvHint: "Leave blank to use the current mode's default (OpenAI-compatible: QWEN_TOKEN_PLAN_API_KEY; DeepSeek official: DEEPSEEK_API_KEY; Zhipu: ZAI_CODING_CN_API_KEY, then ZHIPU_API_KEY). A reference belonging to another vendor's family follows a protocol switch; a custom name is kept.",
-	model: "Model",
-	modelHint: "Leave blank for the default: deepseek-v4-flash-0731 in OpenAI-compatible mode, deepseek-flash in DeepSeek official mode, glm-5.3-flash (with thinking effort low) in Zhipu chat mode. The free-tier glm-4.7-flash is frequently rate-limited and not recommended.",
-	maxOutputTokens: "Max output tokens",
-	maxOutputTokensHint: "Output cap for one search turn (reasoning + tool use + answer). Leave blank for the mode default: 65536 in DeepSeek official mode, 4096 elsewhere. It is a ceiling, not a reservation — only generated tokens are billed, and too small a value truncates the turn and cuts the search round short.",
-	apiVersion: "Protocol version (apiVersion)",
-	apiVersionHint: "DeepSeek official mode only; sent as the anthropic-version header, default 2023-06-01. Saving it blank restores the default.",
-	maxUses: "Search uses per request (maxUses)",
-	maxUsesHint: "DeepSeek official mode only; how many times the web_search server tool may run in one request, default 5. Saving it blank restores the default.",
-	anthropicThinking: "Thinking mode",
-	anthropicThinkingHint: "Anthropic-compatible mode only. The endpoint ignores reasoning-effort and thinking budgets (measured). Turning thinking off skips the reasoning pass and saves its tokens (the longer the reasoning, the bigger the saving; short queries barely differ). Some models always think (Zhipu's GLM-5.3), where `disabled` is rejected with 400; the provider then retries once without the switch.",
-	searchEngine: "Search engine",
-	searchEngineHint: "Zhipu modes only; engines differ in per-call pricing.",
-	engineStd: "search_std (Zhipu built-in, basic)",
-	enginePro: "search_pro (Zhipu built-in, advanced)",
-	engineSogou: "search_pro_sogou (Sogou)",
-	engineQuark: "search_pro_quark (Quark)",
-	count: "Result count",
-	countHint: "How many results one search returns (1-50); a request-supplied cap takes precedence. Saving it blank restores the default.",
-	countSogouNote: "search_pro_sogou only accepts 10/20/30/40/50.",
-	countQuarkNote: "search_pro_quark does not support this parameter; any value is ignored.",
-	searchRecencyFilter: "Recency filter",
-	searchRecencyHint: "Zhipu modes only; restricts the page publication window.",
-	recencyNoLimit: "No limit",
-	recencyOneDay: "Past day",
-	recencyOneWeek: "Past week",
-	recencyOneMonth: "Past month",
-	recencyOneYear: "Past year",
-	contentSize: "Snippet size",
-	contentSizeHint: "Zhipu modes only; controls how detailed the page snippets are.",
-	sizeMedium: "medium (summary)",
-	sizeHigh: "high (detailed)",
-	reasoningEffort: "Thinking effort",
-	reasoningEffortHint: "Chat mode only; low keeps thinking-only models (e.g. GLM-5.3-Flash) fast, raise it for harder tasks.",
-	effortMinimal: "minimal (cheapest)",
-	effortLow: "low (fast)",
-	effortMedium: "medium (balanced)",
-	effortHigh: "high (enhanced)",
-	effortXhigh: "xhigh (extra)",
-	effortMax: "max (deepest)",
-	effortDefault: "Default (model's own, no knob)",
-	thinkingOff: "Off (faster, cheaper)",
-	responsesReasoningEffort: "Reasoning effort (reasoning.effort)",
-	responsesReasoningEffortHint: "OpenAI-compatible mode only; passes the OpenAI-standard reasoning.effort — this is the official set. Which levels exist is per-model: a level the model does not know is rejected (400), and the provider then retries once without it, using the endpoint's own default instead of failing the whole search. Unset sends nothing and follows the model's own mode.",
-	anthropicEffort: "Thinking effort (output_config.effort)",
-	anthropicEffortHint: "Anthropic-compatible mode only; passes the official output_config.effort. Most models know low/medium/high; xhigh and max exist on fewer, and a rejected level makes the provider retry once without it. Unset sends nothing and follows the model's own default.",
-	responsesIncludeSources: "Request full sources (include)",
-	responsesIncludeSourcesHint: "OpenAI-compatible mode only; sends include: [\"web_search_call.action.sources\"] so the response carries the complete source list — the field is include-only in the official API, and without it only the few citation annotations remain. On by default; turn it off if your gateway rejects the parameter.",
-	responsesToolType: "Search tool name (tools[].type)",
-	responsesToolTypeHint: "OpenAI-compatible mode only; the tool name declared in tools[]. With the wrong name the endpoint may run no search at all and answer without any search block (the error then lists the output item types it actually saw). web_search: the official OpenAI spelling, accepted by most compatible endpoints (default); openrouter:web_search: OpenRouter's canonical spelling, declared stable on every API format it supports; web_search_20250305: an alias OpenRouter also accepts on responses (Anthropic-style name) — try it if the other two do nothing.",
-	searchDomainFilter: "Domain allowlist",
-	searchDomainHint: "Zhipu modes only; only results from the given domain (e.g. www.example.com), blank for no restriction.",
-	domainQuarkNote: "search_pro_quark does not support this parameter; any value is ignored.",
-	searchIntent: "Intent recognition",
-	searchIntentHint: "Zhipu basic retrieval only; off skips intent recognition and searches directly.",
-	searchIntentOn: "On",
-	searchIntentOff: "Off",
-	requireSearch: "Require search",
-	requireSearchHint: "Zhipu chat mode only; when on, the endpoint refuses to answer without search results, keeping the answer grounded in live retrieval. Off by default, matching the official default.",
-	searchPrompt: "Search prompt",
-	searchPromptHint: "Zhipu chat mode only; customizes how search results are fused, blank for the official default.",
-	invalidNumber: "Enter a positive integer, or leave blank to use the default.",
-	invalidCount: "Enter an integer from 1 to 50, or leave blank to use the default.",
+	shape: "Search kind",
+	shapeInProtocol: "In-protocol search",
+	shapeStandalone: "Standalone search",
+	protocol: "Protocol",
+	vendor: "Vendor",
+	advanced: "Advanced",
+	fieldPlaceholder: "Blank uses the default",
+	unsupported: "Unsupported",
+	full: "Full",
+	degraded: "Degraded",
+	custom: "Custom",
+	unsupportedNotice: "This combination is unavailable: ",
+	unsupportedVendors: "Combinations not wired in this build (the vendor may still work in another protocol)",
+	customNotice: "Custom endpoints are your responsibility; test after saving.",
+	fillFromTemplate: "Prefill from a template (reference only)",
+	templateFillHint: "Picking a template only fills the fields below; the template itself is not saved and the picker resets after use.",
+	templatePlaceholder: "Pick a template…",
+	templateUsed: "Last used: {name}",
+	templateOverwrite: "\"{name}\" will overwrite the current configuration (including saved values)",
+	templateApply: "Apply template",
+	templateCancel: "Cancel",
+	resetToSaved: "Reset to saved configuration",
+	test: "Test",
+	testing: "Testing…",
+	testOk: "Connected",
+	testFailed: "Test failed",
+	testSources: "sources",
+	testDegraded: "degraded",
+	testNoSourcesByDesign: "this combination returns no sources",
+	testNoSourcesPartial: "no sources: the search may not have run, or this run had no citable page",
+	testNoSourcesFull: "no sources returned; check the tool name and endpoint",
+	modelLockedHint: "This combination only supports this model; it cannot be changed.",
 	apiKey: "API key",
 	apiKeyHint: "Stored through the credentials service (~/.dsh/.credentials.yaml), never in the config file. Leave blank to keep the current key.",
-	apiKeySet: "A key is configured.",
-	apiKeyUnset: "No key is configured; search is unavailable until one is."
+	apiKeySet: "Key configured",
+	apiKeyUnset: "No key",
+	apiKeyByReference: "Depends on the credential reference",
+	invalidNumber: "Enter a positive integer, or leave blank for the default.",
+	invalidCount: "Enter an integer from 1 to 50 (1-20 for Kimi), or leave blank for the default.",
+	protocolChat: "Chat Completions",
+	protocolResponses: "Responses",
+	protocolAnthropic: "Anthropic Messages",
+	protocolSearch: "Standalone search",
+	vendorDeepseek: "DeepSeek",
+	vendorKimi: "Kimi",
+	vendorZhipu: "Zhipu",
+	vendorQwen: "Qwen",
+	vendorOpenai: "OpenAI",
+	vendorAnthropic: "Anthropic",
+	vendorOpenrouter: "OpenRouter",
+	vendorCustom: "Custom",
+	opt_thinking_default: "default (follow model)",
+	opt_thinking_disabled: "disabled (thinking off, faster)",
+	opt_effort_empty: "not sent (follow model)",
+	opt_effort_low: "low",
+	opt_effort_medium: "medium",
+	opt_effort_high: "high",
+	opt_effort_xhigh: "xhigh",
+	opt_effort_max: "max",
+	opt_searchEngine_search_std: "search_std (Zhipu basic)",
+	opt_searchEngine_search_pro: "search_pro (Zhipu advanced)",
+	opt_searchEngine_search_pro_sogou: "search_pro_sogou (Sogou)",
+	opt_searchEngine_search_pro_quark: "search_pro_quark (Quark)",
+	opt_searchRecencyFilter_noLimit: "No limit",
+	opt_searchRecencyFilter_oneDay: "Past day",
+	opt_searchRecencyFilter_oneWeek: "Past week",
+	opt_searchRecencyFilter_oneMonth: "Past month",
+	opt_searchRecencyFilter_oneYear: "Past year",
+	opt_contentSize_medium: "medium (summary)",
+	opt_contentSize_high: "high (detailed)",
+	opt_searchStrategy_turbo: "turbo (fastest)",
+	opt_searchStrategy_max: "max (deep)",
+	opt_searchStrategy_agent: "agent",
+	opt_searchStrategy_agent_max: "agent_max (agent + deep)",
+	opt_freshness_empty: "not sent",
+	opt_freshness_noLimit: "No limit",
+	opt_freshness_oneDay: "Past day",
+	opt_freshness_oneWeek: "Past week",
+	opt_freshness_oneMonth: "Past month",
+	opt_freshness_oneYear: "Past year",
+	opt_searchContextSize_low: "low",
+	opt_searchContextSize_medium: "medium",
+	opt_searchContextSize_high: "high",
+	opt_externalWebAccess_empty: "follow endpoint default (on)",
+	opt_externalWebAccess_true: "true (live web)",
+	opt_externalWebAccess_false: "false (cache/index only)",
+	opt_returnTokenBudget_empty: "not sent",
+	opt_returnTokenBudget_default: "default (standard budget)",
+	opt_returnTokenBudget_unlimited: "unlimited (no cap)",
+	opt_responseInclusion_empty: "default (full)",
+	opt_responseInclusion_full: "full (return all blocks)",
+	opt_responseInclusion_excluded: "excluded (drop consumed blocks)",
+	hint_baseURL: "Endpoint prefix: official or a self-hosted gateway. Blank uses the combination default; protocol paths are appended by the plugin, so do not repeat /responses here.",
+	hint_apiKeyEnv: "Credential reference: the key name in the credentials service or environment. Blank uses the combination default chain (e.g. ZAI_CODING_CN_API_KEY then ZHIPU_API_KEY).",
+	hint_model: "Model name; it must exist on this endpoint and support built-in search. Blank uses the combination default; a model without search support never searches.",
+	hint_maxOutputTokens: "Output cap for one search turn (reasoning + tools + answer). It is a ceiling, not a reservation; too small a value truncates the turn and cuts search rounds.",
+	hint_toolType: "Search tool name declared in tools[]. The default follows the vendor; pick a known spelling from the list or type a gateway-specific name. A wrong name means no search block appears.",
+	hint_includeSources: "Ask for the complete source list (include). On real OpenAI endpoints the field is include-only; without it only citation annotations remain. Turn it off for gateways that reject it.",
+	hint_reasoningEffort: "Reasoning level (reasoning.effort). The set is per-model; an unsupported level returns 400 and the plugin retries without it. Blank sends nothing.",
+	hint_searchContextSize: "How much search context reaches the model: low saves tokens, medium balances, high is fuller. It affects latency and cost, not the source count.",
+	hint_allowedDomains: "Only results from these domains, comma separated, without scheme. OpenAI caps at 100; it is mutually exclusive with blockedDomains (Anthropic returns 400, the plugin sends allowed first).",
+	hint_blockedDomains: "Block these domains, comma separated, without scheme. Mutually exclusive with allowedDomains; support varies and unsupported gateways ignore it.",
+	hint_excludedDomains: "Exclude these domains (OpenRouter). Some engines treat it as mutually exclusive with allowedDomains: Exa accepts both, others may return 400.",
+	hint_userLocation: "Two-letter country code (e.g. US) for geographic bias. Some endpoints support it, others ignore it; Anthropic also accepts city/timezone, only the country is exposed here.",
+	hint_maxUses: "Maximum search-tool calls per request. Once reached the endpoint returns an error result instead of searching, which bounds cost and latency.",
+	hint_thinking: "default follows the model; disabled turns thinking off (faster, cheaper). Some models always think and answer 400 for disabled; the plugin retries without the switch.",
+	hint_effort: "Anthropic output_config.effort level. Supported levels differ per model; a rejected level is retried without it. Blank sends nothing.",
+	hint_searchEngine: "Zhipu search engine; pricing and capability differ: std basic, pro advanced, sogou and quark have their own quotas and limits.",
+	hint_searchEngineCustom: "The engine value is defined by the gateway. Common spellings are listed (Zhipu search_std / search_pro, OpenRouter auto / exa / perplexity, self-hosted searxng / google / bing); type any other value. On the Zhipu template a blank value sends search_std (the API requires it); other templates do not use this parameter.",
+	hint_count: "Result count: 1-50 for Zhipu and DeepSeek, 1-20 for Kimi (values above are clamped). A request-supplied maxResults takes precedence; the configured value only applies when the request omits it. It is independent of the digest entry count.",
+	hint_searchRecencyFilter: "Only pages published within this window. Narrower windows reduce recall but improve freshness-sensitive queries.",
+	hint_contentSize: "Snippet size: medium saves tokens, high returns more detail at a higher price.",
+	hint_searchDomainFilter: "Restrict source domains, comma separated, without scheme. Blank means unrestricted; unsupported engines ignore it.",
+	hint_searchIntent: "Run intent recognition before searching. Off searches directly and responds faster, at some cost in recall for complex questions.",
+	hint_requireSearch: "Refuse to answer without search results, keeping answers grounded. Off by default; when on, an empty result set fails the request instead of answering from model knowledge.",
+	hint_searchPrompt: "Result-fusion prompt controlling how search content is integrated. Blank uses the official default.",
+	hint_searchStrategy: "Qwen search strategy: turbo fastest, max deepest, agent/agent_max agentic. Deeper strategies are slower and more expensive.",
+	hint_forcedSearch: "Force a search even when the model thinks it is unnecessary. Use for must-be-online requests.",
+	hint_freshness: "Only results within this window (Qwen). Blank means unrestricted; it is the Qwen counterpart of Zhipu recency.",
+	hint_assignedSiteList: "Restrict to these sites, comma separated (Qwen). Blank means unrestricted; similar to Zhipu domain filtering.",
+	hint_searchExtension: "Qwen search-extension parameter, passed through. Blank omits it; see Qwen docs for accepted values.",
+	hint_promptIntervene: "Qwen prompt-intervention parameter, passed through. Blank omits it; leave alone unless you know the semantics.",
+	hint_engine: "OpenRouter search engine: auto (native when available, else Exa), native (provider built-in), or exa/firecrawl/parallel/perplexity. Engines differ in price and capability.",
+	hint_mode: "Engine-specific mode: Exa instant/fast/auto/deep-lite/deep/deep-reasoning, Parallel turbo/fast/basic/advanced. Blank uses the engine default.",
+	hint_maxCharacters: "Character cap per result. It takes precedence over searchContextSize when both are set; blank lets the engine choose.",
+	hint_externalWebAccess: "Whether to fetch live pages: blank follows the endpoint default (on); false uses cache/index only, useful for reproducible or compliance-constrained runs.",
+	hint_returnTokenBudget: "Content budget for one search run: default standard, unlimited removes the cap (slower, costlier). GPT-5+ reasoning models only.",
+	hint_searchContentTypes: "Result types to request, comma separated: text and image. Including image also returns image results and works with the image count and caption fields.",
+	hint_imageMaxResults: "Number of image results. 0 or blank disables image search; only applied when searchContentTypes includes image.",
+	hint_imageCaption: "Ask for short image descriptions. Helpful for filtering and display, at a slightly larger response size.",
+	hint_responseInclusion: "How search blocks appear: full returns everything, excluded drops blocks already consumed by code execution to save output tokens. web_search_20260318+ only.",
+	hint_xSearch: "OpenRouter + xAI X/Twitter search parameters as a JSON object, e.g. {\"allowed_x_handles\":[\"OpenRouterAI\"]}. Blank disables it.",
+	hint_maxResults: "Results per search (OpenRouter 1-25, some engines 1-20). Combine with maxTotalResults to bound cost and context.",
+	hint_maxTotalResults: "Cumulative result cap across all searches in one request. Once reached the endpoint tells the model to stop searching.",
+	hint_includeContent: "Also return page content. This significantly increases response size and token usage; keep it off when titles and snippets suffice. On the Zhipu template it pins content_size to high; turn it off to control the snippet length yourself.",
+	hint_digestEntries: "How many results the content digest includes (1-20). It only shapes the digest text; sources are not truncated. Blank uses 8.",
+	hint_digestSnippetChars: "Maximum characters kept per digest entry (1-2000); longer snippets are truncated. Blank uses 200.",
+	hint_timeoutSeconds: "Request timeout in seconds (Kimi 1-60). A timeout fails the search; raise it for long queries.",
+	hint_oriQuestion: "Attach the original question so the server can rank results with its context. DeepSeek search only.",
+	hint_localization: "Localization IP used for geographic ranking. DeepSeek requires a valid IP; blank omits it and a non-IP value returns 400.",
+	hint_path: "Request path relative to baseURL. Required for custom gateways; fixed by the protocol for built-in targets.",
+	hint_queryField: "Name of the query field in the request body. Blank uses the template default (Zhipu search_query, DeepSeek query, Kimi text_query).",
+	hint_countField: "Name of the count field in the request body. Blank uses the template default (count for Zhipu/DeepSeek, limit for Kimi).",
+	hint_resultsPath: "Dot path to the results array, e.g. data.items. Blank uses the template default (Zhipu search_result, DeepSeek results, Kimi search_results).",
+	hint_urlField: "Name of the URL field in each result. Blank uses the template default (link for Zhipu, url elsewhere).",
+	hint_titleField: "Name of the title field in each result. Blank uses the template default (title).",
+	hint_snippetField: "Name of the snippet field in each result. Blank uses the template default (content for Zhipu, snippet elsewhere).",
+	hint_dateField: "Name of the date field in each result. Blank means dates are not parsed; set it only when the response carries one.",
+	hint_contentField: "Name of the content field in each result. Blank means no content digest is built.",
+	field_baseURL: "Endpoint",
+	field_apiKeyEnv: "Credential reference",
+	field_model: "Model",
+	field_maxOutputTokens: "Max output tokens",
+	field_count: "Result count",
+	field_maxUses: "Max search uses",
+	field_searchEngine: "Search engine",
+	field_searchRecencyFilter: "Recency",
+	field_contentSize: "Snippet size",
+	field_searchIntent: "Intent recognition",
+	field_searchDomainFilter: "Domain filter",
+	field_requireSearch: "Require search",
+	field_searchPrompt: "Search prompt",
+	field_reasoningEffort: "Thinking effort",
+	field_thinking: "Thinking mode",
+	field_effort: "Effort",
+	field_includeSources: "Request full sources",
+	field_includeContent: "Include content",
+	field_digestEntries: "Digest entries",
+	field_digestSnippetChars: "Chars per digest entry",
+	field_timeoutSeconds: "Timeout (s)",
+	field_oriQuestion: "Original question",
+	field_localization: "Localization IP",
+	field_path: "Request path",
+	field_template: "Compatible template",
+	field_toolType: "Search tool name",
+	field_queryField: "Query field",
+	field_countField: "Count field",
+	field_resultsPath: "Results path",
+	field_urlField: "URL field",
+	field_titleField: "Title field",
+	field_snippetField: "Snippet field",
+	field_dateField: "Date field",
+	field_contentField: "Content field",
+	field_searchContextSize: "Search context size",
+	field_allowedDomains: "Allowed domains",
+	field_blockedDomains: "Blocked domains",
+	field_excludedDomains: "Excluded domains",
+	field_userLocation: "User location",
+	field_engine: "Engine",
+	field_mode: "Engine mode",
+	field_maxCharacters: "Max chars per result",
+	field_externalWebAccess: "Live web access",
+	field_returnTokenBudget: "Return token budget",
+	field_searchContentTypes: "Search content types",
+	field_imageMaxResults: "Image max results",
+	field_imageCaption: "Image captions",
+	field_responseInclusion: "Response inclusion",
+	field_xSearch: "X search (JSON)",
+	field_maxResults: "Max results",
+	field_maxTotalResults: "Max total results",
+	field_searchStrategy: "Search strategy",
+	field_forcedSearch: "Force search",
+	field_freshness: "Freshness",
+	field_assignedSiteList: "Assigned sites",
+	field_searchExtension: "Search extension",
+	field_promptIntervene: "Prompt intervention",
 };
 //#endregion
 
 //#region fields
-/**
- * One settings field: a head row (label, optional trailing badges), the
- * control, and a hint line — the official ValueField's exact layout.
- * @param props - the field's copy and its staged text.
- * @returns the labelled control.
- */
+/** One settings field: label, control, hint. */
 function ValueField(props: ValueFieldProps) {
 	return (
 		<div className="dwsd-field">
@@ -438,13 +749,7 @@ function ValueField(props: ValueFieldProps) {
 		</div>
 	);
 }
-/**
- * A write-only credential control. The stored key never rides a response,
- * so the control starts blank and reports only whether one is configured —
- * the official SecretField's contract, mirrored here.
- * @param props - the field's copy, its staged text, and the configured state.
- * @returns the labelled control.
- */
+/** A write-only credential control. */
 function SecretField(props: SecretFieldProps) {
 	return (
 		<div className="dwsd-field">
@@ -470,13 +775,79 @@ function SecretField(props: SecretFieldProps) {
 	);
 }
 /**
- * An enumerated-choice control: a radio group laid out with the official
- * model-selection row's exact rules (grid row, hover wash, brand accent).
- * The staged value is one of the options' values; nothing is committed
- * until the card saves.
- * @param props - the field's copy, its options, and the staged value.
- * @returns the labelled radio group.
+ * A text field with an explicit dropdown: the button always lists every candidate
+ * (datalist filters by the current text, which makes a prefilled field look like it
+ * has one option), while the input still accepts free text.
  */
+function ComboField(props: ComboFieldProps) {
+	const [open, setOpen] = react.useState(false);
+	return (
+		<div className="dwsd-field">
+			<div className="dwsd-head">
+				<label className="dwsd-label" htmlFor={props.id}>{props.label}</label>
+			</div>
+			<div className="dwsd-combo">
+				<input
+					id={props.id}
+					className="dwsd-input"
+					type="text"
+					value={props.text}
+					placeholder={props.placeholder ?? ""}
+					spellCheck={false}
+					autoComplete="off"
+					onChange={(event) => {
+						const next = event.target.value;
+						props.onEdit(next);
+						/** 清空时展开候选，正常输入时收起，避免遮挡。 */
+						setOpen(next === "");
+					}}
+					onKeyDown={() => {
+						setOpen(false);
+					}}
+					onBlur={() => {
+						setOpen(false);
+					}}
+				/>
+				<button
+					type="button"
+					className="dwsd-comboToggle"
+					onMouseDown={(event) => {
+						event.preventDefault();
+					}}
+					aria-label={props.label}
+					aria-expanded={open}
+					onClick={() => {
+						setOpen(!open);
+					}}
+				>
+					▾
+				</button>
+				{open ? (
+					<ul className="dwsd-comboList">
+						{props.options.map((option) => (
+							<li key={option}>
+								<button
+									type="button"
+									onMouseDown={(event) => {
+										event.preventDefault();
+									}}
+									onClick={() => {
+										props.onEdit(option);
+										setOpen(false);
+									}}
+								>
+									{option}
+								</button>
+							</li>
+						))}
+					</ul>
+				) : null}
+			</div>
+			<p className="dwsd-hint">{props.hint}</p>
+		</div>
+	);
+}
+/** An enumerated-choice control. */
 function ChoiceField(props: ChoiceFieldProps) {
 	return (
 		<div className="dwsd-field">
@@ -485,13 +856,14 @@ function ChoiceField(props: ChoiceFieldProps) {
 			</div>
 			<div className="dwsd-choices" role="radiogroup" aria-label={props.label}>
 				{props.options.map((option) => (
-					<label className="dwsd-choice" key={option.value}>
+					<label className={option.disabled === true ? "dwsd-choice dwsd-choiceDisabled" : "dwsd-choice"} key={option.value}>
 						<input
+							id={`${props.id}-${option.value === "" ? "empty" : option.value}`}
 							type="radio"
 							name={props.id}
 							value={option.value}
 							checked={props.value === option.value}
-							disabled={props.disabled}
+							disabled={props.disabled === true || option.disabled === true}
 							onChange={() => {
 								props.onEdit(option.value);
 							}}
@@ -504,12 +876,31 @@ function ChoiceField(props: ChoiceFieldProps) {
 		</div>
 	);
 }
-/**
- * A boolean control shaped like the official toggle switch: a switch button
- * on the field's head row, hint underneath, staged through `onEdit`.
- * @param props - the field's copy and its staged boolean.
- * @returns the labelled switch.
- */
+/** A one-shot action picker: the selection applies and resets to the placeholder. */
+function SelectField(props: SelectFieldProps) {
+	return (
+		<div className="dwsd-field">
+			<div className="dwsd-head">
+				<label className="dwsd-label" htmlFor={props.id}>{props.label}</label>
+			</div>
+			<select
+				id={props.id}
+				className="dwsd-input"
+				value={props.value}
+				onChange={(event) => {
+					props.onChange(event.target.value);
+				}}
+			>
+				<option value="" disabled>{props.placeholder}</option>
+				{props.options.map((option) => (
+					<option key={option.value} value={option.value}>{option.label}</option>
+				))}
+			</select>
+			<p className="dwsd-hint">{props.hint}</p>
+		</div>
+	);
+}
+/** A boolean control shaped like the official toggle switch. */
 function SwitchField(props: SwitchFieldProps) {
 	return (
 		<div className="dwsd-field">
@@ -534,540 +925,506 @@ function SwitchField(props: SwitchFieldProps) {
 }
 //#endregion
 
-//#region config card
-/** Normalize one mode's stored bucket into draft-shaped values. */
-function normalizeBucket(bucket: Bucket): Omit<Draft, "mode"> {
-	return {
-		baseURL: bucket.baseURL ?? "",
-		apiKeyEnv: bucket.apiKeyEnv ?? "",
-		model: bucket.model ?? "",
-		maxOutputTokens: bucket.maxOutputTokens != null ? String(bucket.maxOutputTokens) : "",
-		apiVersion: bucket.apiVersion ?? "",
-		maxUses: bucket.maxUses != null ? String(bucket.maxUses) : "",
-		anthropicThinking: bucket.anthropicThinking ?? "default",
-		anthropicEffort: bucket.anthropicEffort ?? "",
-		searchEngine: bucket.searchEngine ?? "search_std",
-		count: bucket.count != null ? String(bucket.count) : "",
-		searchRecencyFilter: bucket.searchRecencyFilter ?? "noLimit",
-		contentSize: bucket.contentSize ?? "medium",
-		reasoningEffort: bucket.reasoningEffort ?? "low",
-		responsesReasoningEffort: bucket.responsesReasoningEffort ?? "",
-		responsesIncludeSources: bucket.responsesIncludeSources ?? true,
-		responsesToolType: bucket.responsesToolType ?? "web_search",
-		searchDomainFilter: bucket.searchDomainFilter ?? "",
-		searchIntent: !!bucket.searchIntent,
-		requireSearch: !!bucket.requireSearch,
-		searchPrompt: bucket.searchPrompt ?? ""
-	};
-}
-/** Normalize one GET /config payload into the card's saved snapshot. */
-function toSnapshot(data: ConfigPayload): Snapshot {
-	return {
-		mode: data.mode ?? "responses",
-		...normalizeBucket(data),
-		keyConfigured: !!data.keyConfigured
-	};
-}
-/**
- * The draft one mode starts from: the bucket the host stored for it, or the
- * mode's official values when it has none yet. Switching modes therefore
- * restores that mode's own endpoint, model, credential reference, and search
- * options — across a reload too, because the buckets come from the host
- * rather than from anything this card remembers.
- *
- * @param mode - the mode being entered.
- * @param buckets - every stored bucket, keyed by mode.
- * @returns the staged draft for that mode.
- */
-function draftForMode(mode: Mode, buckets: Record<string, Bucket> | undefined): Draft {
-	const bucket = buckets?.[mode];
-	if (bucket === void 0) {
-		const family = modeFamily(mode);
-		return {
-			...emptyDraft(),
-			mode,
-			baseURL: OFFICIAL_ENDPOINTS[family][0],
-			model: OFFICIAL_MODELS[family][0],
-			apiKeyEnv: OFFICIAL_KEY_REFS[family][0]
-		};
+//#region helpers
+/** Normalize a stored bucket into staged values. */
+function toDraft(bucket: TargetDraft | undefined): TargetDraft {
+	const draft: TargetDraft = {};
+	for (const [key, value] of Object.entries(bucket ?? {})) {
+		draft[key] = typeof value === "boolean" ? value : String(value);
 	}
-	return {
-		...emptyDraft(),
-		...normalizeBucket(bucket),
-		mode
-	};
+	return draft;
 }
-/** Draft keys compared against the saved snapshot to flag "unsaved". */
-const DRAFT_KEYS: readonly (keyof Draft)[] = ["mode", "baseURL", "apiKeyEnv", "model", "maxOutputTokens", "apiVersion", "maxUses", "anthropicThinking", "anthropicEffort", "searchEngine", "count", "searchRecencyFilter", "contentSize", "reasoningEffort", "responsesReasoningEffort", "responsesIncludeSources", "responsesToolType", "searchDomainFilter", "searchIntent", "requireSearch", "searchPrompt"];
+
 /**
- * Official endpoint, model, and credential reference per protocol family,
- * highest priority first: these are settled facts, not something the user
- * should have to look up. A family may list several acceptable values — the
- * Zhipu chain leads with `ZAI_CODING_CN_API_KEY` (the name DeepSeek's
- * credential plane uses for a `zai-coding-cn` provider) and keeps the
- * historical `ZHIPU_API_KEY` behind it — and every entry counts as that
- * family's own.
+ * Seed a custom target from its first template. Used both when the user switches to a
+ * custom target and when a saved selection already points at one without a bucket.
+ * `template` itself is never staged: it is a fill action, not part of the configuration.
  */
-const OFFICIAL_ENDPOINTS: Record<Family, readonly string[]> = {
-	responses: ["https://maas.qianwenaiapi.com/compatible-mode/v1"],
-	"anthropic-messages": ["https://api.deepseek.com/anthropic/v1"],
-	zhipu: ["https://open.bigmodel.cn/api/paas/v4"]
-};
+/** One template row as served by GET /config. */
+type TemplateEntry = NonNullable<CatalogEntry["templates"]>[number];
+
 /**
- * Each mode's default output budget, shown as the placeholder while the
- * field is blank. The Anthropic turn needs more room than the others
- * (thinking plus the native tool round).
+ * Fill a draft from one template. Only keys this target actually declares are copied:
+ * a template may carry another protocol's defaults (e.g. Zhipu's `contentSize` on a
+ * search target), and staging those would make the host reject the whole save.
  */
-const MODE_MAX_OUTPUT_TOKENS: Record<Mode, number> = {
-	responses: 4096,
-	"anthropic-messages": 65536,
-	"zhipu-web-search": 4096,
-	"zhipu-chat-search": 4096
-};
-const OFFICIAL_MODELS: Record<Family, readonly string[]> = {
-	responses: ["deepseek-v4-flash-0731"],
-	"anthropic-messages": ["deepseek-flash"],
-	zhipu: ["glm-5.3-flash"]
-};
-const OFFICIAL_KEY_REFS: Record<Family, readonly string[]> = {
-	responses: ["QWEN_TOKEN_PLAN_API_KEY"],
-	"anthropic-messages": ["DEEPSEEK_API_KEY"],
-	zhipu: ["ZAI_CODING_CN_API_KEY", "ZHIPU_API_KEY"]
-};
-/** The family a mode belongs to: the key its official values live under. */
-function modeFamily(mode: Mode): Family {
-	return mode === "zhipu-web-search" || mode === "zhipu-chat-search" ? "zhipu" : mode;
+function fillFromTemplate(template: TemplateEntry, fields: readonly string[]): TargetDraft {
+	const allowed = new Set(fields);
+	const filled: TargetDraft = {};
+	if (template.chatVariant !== void 0 && allowed.has("chatVariant")) filled.chatVariant = template.chatVariant;
+	if (template.toolType !== void 0 && allowed.has("toolType")) filled.toolType = template.toolType;
+	for (const [key, raw] of Object.entries(template.defaults)) {
+		if (!allowed.has(key)) continue;
+		if (Array.isArray(raw)) {
+			if (raw.length > 0) filled[key] = String(raw[0]);
+		} else if (typeof raw === "boolean") filled[key] = raw;
+		else if (raw !== void 0 && raw !== null) filled[key] = String(raw);
+	}
+	return filled;
 }
-/** The draft shape behind the staged form. */
-function emptyDraft(): Draft {
-	return {
-		mode: "responses",
-		baseURL: "",
-		apiKeyEnv: "",
-		model: "",
-		maxOutputTokens: "",
-		apiVersion: "",
-		maxUses: "",
-		anthropicThinking: "default",
-		anthropicEffort: "",
-		searchEngine: "search_std",
-		count: "",
-		searchRecencyFilter: "noLimit",
-		contentSize: "medium",
-		reasoningEffort: "low",
-		responsesReasoningEffort: "",
-		responsesIncludeSources: true,
-		responsesToolType: "web_search",
-		searchDomainFilter: "",
-		searchIntent: false,
-		requireSearch: false,
-		searchPrompt: ""
-	};
+
+function seedFromTemplate(next: CatalogEntry | undefined): TargetDraft {
+	const template = next?.templates?.[0];
+	if (next === void 0 || template === void 0) return {};
+	return fillFromTemplate(template, next.fields);
 }
-/**
- * The row's configuration page, sharing the official configuration pages'
- * field face: a staged form with discard/save in a footer.
- *
- * Edits stage locally; the draft differing from what the Host holds leaves
- * the save control enabled. Save POSTs the draft (an empty numeric
- * field means "keep the default"; a blank key field writes nothing), then
- * re-reads the authoritative config. A rejected save keeps the page with
- * the error in the footer, exactly where the official pages report save
- * failures.
- *
- * Protocol-specific fields render conditionally: Zhipu search options only
- * in the `zhipu-*` modes, the model/max-tokens pair only where a model
- * turn exists, and the chat prompt only in `zhipu-chat-search`.
- *
- * @param props - the slot kit; `t` resolves this entry's locale namespace.
- * @returns the page.
- */
-function ConfigPage(props: { t: (key: string) => string }) {
-	const { t } = props;
-	const [loaded, setLoaded] = react.useState(false);
-	const [loadFailed, setLoadFailed] = react.useState(false);
-	const [saved, setSaved] = react.useState<Snapshot>({ ...emptyDraft(), keyConfigured: false });
-	/** Every stored bucket, exactly as the host serves them. */
-	const [buckets, setBuckets] = react.useState<Record<string, Bucket>>({});
-	const [draft, setDraft] = react.useState<Draft>(emptyDraft());
-	const [apiKeyDraft, setApiKeyDraft] = react.useState("");
+
+/** Placeholder text for one field: its catalog default. */
+function defaultText(entry: CatalogEntry | undefined, key: string): string {
+	const value = entry?.defaults[key];
+	if (Array.isArray(value)) return value.length > 0 ? String(value[0]) : "";
+	if (typeof value === "boolean") return "";
+	return value == null ? "" : String(value);
+}
+
+/** Current staged value; booleans fall back to the catalog default. */
+function stagedValue(draft: TargetDraft, entry: CatalogEntry | undefined, key: string): Primitive {
+	const value = draft[key];
+	if (value !== void 0) return value;
+	if (BOOLEANS.has(key)) return entry?.defaults[key] === true;
+	return "";
+}
+
+/** Human label for a protocol. */
+function protocolLabel(t: (key: string) => string, protocol: Protocol): string {
+	if (protocol === "chat-completions") return t("protocolChat");
+	if (protocol === "responses") return t("protocolResponses");
+	if (protocol === "anthropic-messages") return t("protocolAnthropic");
+	return t("protocolSearch");
+}
+
+/** Human label for a vendor. */
+function vendorLabel(t: (key: string) => string, vendor: string): string {
+	const key = `vendor${vendor.slice(0, 1).toUpperCase()}${vendor.slice(1)}`;
+	const label = t(key);
+	return label === key ? vendor : label;
+}
+
+/** Support badge copy. */
+function supportLabel(t: (key: string) => string, support: CatalogEntry["support"]): string {
+	return t(support);
+}
+//#endregion
+
+//#region config card
+/** The full configuration page. */
+function ConfigPage({ t }: { t: (key: string) => string }) {
+	const [snapshot, setSnapshot] = react.useState<Snapshot | null>(null);
+	const [failed, setFailed] = react.useState<string | null>(null);
 	const [saving, setSaving] = react.useState(false);
-	const [failed, setFailed] = react.useState("");
-	react.useEffect(() => {
-		let alive = true;
-		fetch(CONFIG_URL).then((r) => {
-			if (!r.ok) throw new Error(`HTTP ${r.status}`);
-			return r.json();
-		}).then((data: ConfigPayload) => {
-			if (!alive) return;
-			const snapshot = toSnapshot(data);
-			setSaved(snapshot);
-			setBuckets(data.modes ?? {});
-			setDraft(draftForMode(snapshot.mode, data.modes ?? {}));
-			setLoaded(true);
-			setLoadFailed(false);
-		}).catch(() => {
-			if (alive) setLoadFailed(true);
-		});
-		return () => {
-			alive = false;
-		};
-	}, []);
-	const baseline = draftForMode(draft.mode, buckets);
-	/**
-	* The selected mode counts as a change on its own: entering a mode whose
-	* bucket already holds these values would otherwise look clean and the
-	* selection itself could never be saved.
-	*/
-	const dirty = draft.mode !== saved.mode || DRAFT_KEYS.some((key) => draft[key] !== baseline[key]) || apiKeyDraft !== "";
-	const tokensText = draft.maxOutputTokens.trim();
-	const tokensInvalid = tokensText !== "" && !(Number.isInteger(Number(tokensText)) && Number(tokensText) >= 1);
-	const countText = draft.count.trim();
-	const countInvalid = countText !== "" && !(Number.isInteger(Number(countText)) && Number(countText) >= 1 && Number(countText) <= 50);
-	const maxUsesText = draft.maxUses.trim();
-	const maxUsesInvalid = maxUsesText !== "" && !(Number.isInteger(Number(maxUsesText)) && Number(maxUsesText) >= 1);
-	const isZhipu = draft.mode.startsWith("zhipu-");
-	const isZhipuChat = draft.mode === "zhipu-chat-search";
-	/**
-	 * Engine-parameter compatibility notes straight from the Zhipu OpenAPI
-	 * (`WebSearchObject`): `count` is documented for std/pro/sogou only, and
-	 * sogou restricts it to 10/20/30/40/50; `search_domain_filter` for
-	 * std/pro/sogou. The values are still sent as configured — the endpoint
-	 * ignores them — so the note rides the hint instead of blocking input.
-	 */
-	const countEngineNote = draft.searchEngine === "search_pro_quark" ? t("countQuarkNote") : draft.searchEngine === "search_pro_sogou" ? t("countSogouNote") : "";
-	const domainEngineNote = draft.searchEngine === "search_pro_quark" ? t("domainQuarkNote") : "";
-	const discard = () => {
-		setDraft(draftForMode(saved.mode, buckets));
-		setApiKeyDraft("");
-		setFailed("");
-	};
-	const save = async () => {
-		setSaving(true);
-		setFailed("");
+	const [apiKey, setApiKey] = react.useState("");
+	const [testing, setTesting] = react.useState(false);
+	const [testResult, setTestResult] = react.useState<{ text: string; warn: boolean } | null>(null);
+	const [shape, setShape] = react.useState<Shape>("in-protocol");
+	const [vendor, setVendor] = react.useState("qwen");
+	const [protocol, setProtocol] = react.useState<Protocol>("responses");
+	const [drafts, setDrafts] = react.useState<Record<string, TargetDraft>>({});
+	const [baseline, setBaseline] = react.useState<Record<string, TargetDraft>>({});
+	/** 模板是一次性填充动作：`lastTemplate` 只用于 placeholder 提示，不进入配置。 */
+	const [lastTemplate, setLastTemplate] = react.useState<string | null>(null);
+	/** 已保存过配置时，切模板先要求确认，避免静默覆盖。 */
+	const [pendingTemplate, setPendingTemplate] = react.useState<{ id: string; label: string } | null>(null);
+
+	/** Load the host snapshot and stage every saved target. */
+	const load = react.useCallback(async () => {
 		try {
-			const body: Record<string, unknown> = { ...draft };
-			if (tokensText !== "") body.maxOutputTokens = Number(tokensText);
-			if (countText !== "") body.count = Number(countText);
-			if (maxUsesText !== "") body.maxUses = Number(maxUsesText);
-			if (apiKeyDraft !== "") body.apiKey = apiKeyDraft;
-			const r = await fetch(CONFIG_URL, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(body)
-			});
-			const data = await r.json().catch(() => ({}));
-			if (!r.ok) {
-				setFailed(data.error ?? `HTTP ${r.status}`);
-				return;
+			const response = await fetch(CONFIG_URL, { headers: { accept: "application/json" } });
+			if (!response.ok) throw new Error(`HTTP ${response.status}`);
+			const data = await response.json() as Snapshot;
+			const staged: Record<string, TargetDraft> = {};
+			for (const [id, bucket] of Object.entries(data.targets ?? {})) staged[id] = toDraft(bucket);
+			const selection = data.selection ?? { vendor: "qwen", protocol: "responses" as Protocol };
+			const entry = (data.catalog ?? []).find((item) => item.vendor === selection.vendor && item.protocol === selection.protocol);
+			/** 已保存选择指向自定义 target 但没有桶时，用首个模板补上草稿，避免模板看起来已选中却全是空值。 */
+			if (entry?.support === "custom" && staged[entry.id] === void 0) {
+				const seed = seedFromTemplate(entry);
+				if (Object.keys(seed).length > 0) staged[entry.id] = seed;
 			}
-			const fresh: ConfigPayload = await fetch(CONFIG_URL).then((response) => response.json());
-			const snapshot = toSnapshot(fresh);
-			setSaved(snapshot);
-			setBuckets(fresh.modes ?? {});
-			setDraft(draftForMode(snapshot.mode, fresh.modes ?? {}));
-			setApiKeyDraft("");
-		} catch (e) {
-			setFailed(String(e));
+			setSnapshot(data);
+			setBaseline(staged);
+			setDrafts(staged);
+			setVendor(selection.vendor);
+			setProtocol(selection.protocol);
+			setShape(entry?.kind ?? (selection.protocol === "search" ? "standalone" : "in-protocol"));
+			setLastTemplate(null);
+			setPendingTemplate(null);
+			setFailed(null);
+		} catch {
+			setFailed(t("loadFailed"));
+		}
+	}, [t]);
+
+	react.useEffect(() => {
+		void load();
+	}, [load]);
+
+	if (snapshot === null) {
+		return <p className="dwsd-status">{failed === "loadFailed" ? t("loadFailed") : failed ?? t("loading")}</p>;
+	}
+
+	const catalog = snapshot.catalog;
+	const shapeProtocols = PROTOCOLS.filter((value) => catalog.some((entry) => entry.kind === shape && entry.protocol === value));
+	const vendorEntries = catalog.filter((entry) => entry.kind === shape && entry.protocol === protocol && entry.support !== "unsupported");
+	/** 折叠区只列当前形态下不可用的组合：内置协议与纯工具的原因分开呈现。 */
+	const unsupportedEntries = catalog.filter((entry) => entry.support === "unsupported" && entry.kind === shape);
+	const currentId = `${vendor}/${protocol}`;
+	const entry = catalog.find((item) => item.id === currentId);
+	const savedDraft = baseline[currentId] ?? {};
+	const draft = drafts[currentId] ?? savedDraft;
+	/** 选择本身也是待保存状态：切换厂商/协议后即使字段没改，也要能保存这次选择。 */
+	const selectionChanged = vendor !== snapshot.selection.vendor || protocol !== snapshot.selection.protocol;
+	const dirty = selectionChanged || JSON.stringify(draft) !== JSON.stringify(savedDraft) || apiKey.length > 0;
+	/**
+	 * 密钥徽标跟随所选厂商：GET 一次探测每个厂商的默认链；`custom` 的引用名由
+	 * 用户填写，无法预判，改为提示它取决于引用名。
+	 */
+	const customCredential = vendor === "custom";
+	const credentialConfigured = customCredential ? false : snapshot.credentials?.[vendor] ?? snapshot.keyConfigured;
+	const credentialLabel = customCredential
+		? t("apiKeyByReference")
+		: credentialConfigured ? t("apiKeySet") : t("apiKeyUnset");
+
+	/** Switch shape, keeping the current vendor when it supports the new shape. */
+	const chooseShape = (next: Shape): void => {
+		setShape(next);
+		setApiKey("");
+		/** 模板提示只针对当前 target；切换后清空，避免 placeholder 误导。 */
+		setLastTemplate(null);
+		setPendingTemplate(null);
+		const protocols = PROTOCOLS.filter((value) => catalog.some((item) => item.kind === next && item.protocol === value));
+		const keep = protocols.includes(protocol) ? protocol : protocols[0];
+		if (keep === void 0) return;
+		setProtocol(keep);
+		if (catalog.some((item) => item.vendor === vendor && item.protocol === keep && item.kind === next)) return;
+		const fallback = catalog.find((item) => item.kind === next && item.protocol === keep && item.support === "full")
+			?? catalog.find((item) => item.kind === next && item.protocol === keep && item.support !== "unsupported");
+		if (fallback !== void 0) setVendor(fallback.vendor);
+	};
+
+	/** Switch protocol, moving to a vendor that supports it when needed. */
+	const chooseProtocol = (next: Protocol): void => {
+		setProtocol(next);
+		setApiKey("");
+		setLastTemplate(null);
+		setPendingTemplate(null);
+		if (catalog.some((item) => item.vendor === vendor && item.protocol === next)) return;
+		const fallback = catalog.find((item) => item.kind === shape && item.protocol === next && item.support === "full")
+			?? catalog.find((item) => item.kind === shape && item.protocol === next && item.support !== "unsupported");
+		if (fallback !== void 0) setVendor(fallback.vendor);
+	};
+
+	/** Seed a custom target's draft from its first template when nothing is saved yet. */
+	const seededDraft = (next: CatalogEntry | undefined): TargetDraft =>
+		next === void 0 || Object.keys(baseline[next.id] ?? {}).length > 0 ? {} : seedFromTemplate(next);
+
+	/** Stage one field on the current target. */
+	const edit = (key: string, value: Primitive): void => {
+		/** 切换自定义 Chat 的变体时清掉上一个变体的专属字段，避免保存无用参数。 */
+		if (key === "chatVariant" && entry?.support === "custom" && entry.protocol === "chat-completions") {
+			const allowed = new Set(CHAT_VARIANT_FIELDS[String(value)] ?? []);
+			const next: TargetDraft = {};
+			for (const [k, v] of Object.entries(draft)) {
+				if (!CHAT_VARIANT_ONLY.has(k) || allowed.has(k)) next[k] = v;
+			}
+			next[key] = value;
+			setDrafts((current) => ({ ...current, [currentId]: next }));
+			return;
+		}
+		setDrafts((current) => ({ ...current, [currentId]: { ...draft, [key]: value } }));
+	};
+
+	/** Discard staged edits for the current target. */
+	const discard = (): void => {
+		setDrafts((current) => ({ ...current, [currentId]: savedDraft }));
+		setApiKey("");
+		setLastTemplate(null);
+		setPendingTemplate(null);
+		setVendor(snapshot.selection.vendor);
+		setProtocol(snapshot.selection.protocol);
+		setShape(snapshot.selection.protocol === "search" ? "standalone" : "in-protocol");
+		setFailed(null);
+	};
+
+	/** Run one minimal search with the staged draft; nothing is persisted. */
+	const test = async (): Promise<void> => {
+		setTesting(true);
+		setTestResult(null);
+		const payload: Record<string, unknown> = { vendor, protocol };
+		for (const [key, value] of Object.entries(draft)) payload[key] = wireValue(key, value);
+		try {
+			const response = await fetch("/api/web-search-diy/test", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(payload)
+			});
+			const data = await response.json() as { ok?: boolean; sourceCount?: number; sourceQuality?: string; degraded?: boolean; latencyMs?: number; error?: string };
+			if (data.ok === true) {
+				const count = data.sourceCount ?? 0;
+				const ms = data.latencyMs ?? 0;
+				/** 0 来源按该组合的预期来源质量分级：设计上不返回、可能未执行、或应检查配置。 */
+				const summary = count > 0
+					? `${t("testOk")} · ${count} ${t("testSources")} · ${ms}ms`
+					: data.sourceQuality === "none"
+						? `${t("testOk")} · ${t("testNoSourcesByDesign")} · ${ms}ms`
+						: data.sourceQuality === "partial"
+							? `${t("testOk")} · ${t("testNoSourcesPartial")} · ${ms}ms`
+							: `${t("testOk")} · ${t("testNoSourcesFull")} · ${ms}ms`;
+				setTestResult({ text: `${summary}${data.degraded === true ? ` · ${t("testDegraded")}` : ""}`, warn: count === 0 && data.sourceQuality !== "none" });
+			} else {
+				setTestResult({ text: `${t("testFailed")}: ${data.error ?? `HTTP ${response.status}`}`, warn: true });
+			}
+		} catch (cause) {
+			setTestResult({ text: `${t("testFailed")}: ${cause instanceof Error ? cause.message : String(cause)}`, warn: true });
+		} finally {
+			setTesting(false);
+		}
+	};
+
+	/** Submit the staged draft for the current target. */
+	const save = async (): Promise<void> => {
+		setSaving(true);
+		setFailed(null);
+		const payload: Record<string, unknown> = { vendor, protocol };
+		/** Send every staged key: a blank value is the host's "clear this key" signal. */
+		for (const [key, value] of Object.entries(draft)) payload[key] = wireValue(key, value);
+		if (apiKey.length > 0) payload.apiKey = apiKey;
+		try {
+			const response = await fetch(CONFIG_URL, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(payload)
+			});
+			const data = await response.json() as { ok?: boolean; error?: string };
+			if (!response.ok || data.ok !== true) throw new Error(data.error ?? `HTTP ${response.status}`);
+			setApiKey("");
+			await load();
+		} catch (error) {
+			setFailed(error instanceof Error ? error.message : String(error));
 		} finally {
 			setSaving(false);
 		}
 	};
-	const blocked = !dirty || tokensInvalid || countInvalid || maxUsesInvalid || saving;
+
+	/** Localized field label; falls back to the raw key when untranslated. */
+	const labelOf = (key: string): string => {
+		const translated = t(`field_${key}`);
+		return translated === `field_${key}` ? key : translated;
+	};
+
+	/** Apply a custom target's template: rebuild the draft from that template, never leaking the previous one's values. */
+	const applyTemplate = (templateId: string): void => {
+		const template = entry?.templates?.find((item) => item.id === templateId);
+		if (template === void 0) return;
+		/** 只填该 target 声明的字段；`template` 本身不进入草稿，保存时也不会提交。 */
+		const next = fillFromTemplate(template, entry?.fields ?? []);
+		setDrafts((current) => ({ ...current, [currentId]: next }));
+		setLastTemplate(template.label);
+	};
+
+	/** 选模板：有已保存配置时先确认，否则直接填充。 */
+	const chooseTemplate = (templateId: string): void => {
+		const template = entry?.templates?.find((item) => item.id === templateId);
+		if (template === void 0) return;
+		if (snapshot.targets?.[currentId] !== void 0) {
+			setPendingTemplate({ id: template.id, label: template.label });
+			return;
+		}
+		applyTemplate(template.id);
+	};
+
+	const confirmTemplate = (): void => {
+		if (pendingTemplate === null) return;
+		applyTemplate(pendingTemplate.id);
+		setPendingTemplate(null);
+	};
+
+	/** 重置回该 target 已保存的配置（没有保存过则清空）。 */
+	const resetToSaved = (): void => {
+		setDrafts((current) => ({ ...current, [currentId]: savedDraft }));
+		setLastTemplate(null);
+		setPendingTemplate(null);
+	};
+
+	/** Render one field by its declared type. */
+	const renderField = (key: string): JSX.Element => {
+		const value = stagedValue(draft, entry, key);
+		const translatedHint = t(`hint_${key}`);
+		const baseHint = entry?.hints[key] ?? (translatedHint.startsWith("hint_") || translatedHint.startsWith("<missing") ? t("fieldPlaceholder") : translatedHint);
+		const hint = key === "model" && entry?.modelLocked === true ? t("modelLockedHint") : baseHint;
+		const placeholder = defaultText(entry, key);
+		const id = `plugin-config-web-search-diy-${currentId.replace(/[^a-z0-9]+/gu, "-")}-${key}`;
+		if (key === "apiKeyEnv") {
+			/** 只有从未设置过才显示默认；用户清空后保持为空，便于改选或手填。 */
+			const raw = draft[key];
+			const current = raw === void 0 ? defaultText(entry, key) : String(raw);
+			const options = entry?.vendor === "custom" ? ALL_CREDENTIAL_REFS : (CREDENTIAL_REFS[entry?.vendor ?? ""] ?? ALL_CREDENTIAL_REFS);
+			return <ComboField key={key} id={id} label={labelOf(key)} hint={hint} text={current} options={options} onEdit={(next) => { edit(key, next); }} />;
+		}
+		if (key === "toolType") {
+			const raw = draft[key];
+			const current = raw === void 0 ? defaultText(entry, key) : String(raw);
+			return <ComboField key={key} id={id} label={labelOf(key)} hint={hint} text={current} options={ENUMS.toolType} onEdit={(next) => { edit(key, next); }} />;
+		}
+		if (key === "searchEngine" && entry?.support === "custom") {
+			/** 自定义网关的引擎名不统一：候选只做提示，允许自由输入，留空不发送。 */
+			const raw = draft[key];
+			const current = raw === void 0 ? defaultText(entry, key) : String(raw);
+			return <ComboField key={key} id={id} label={labelOf(key)} hint={t("hint_searchEngineCustom")} text={current} options={CUSTOM_SEARCH_ENGINES} onEdit={(next) => { edit(key, next); }} />;
+		}
+		if (BOOLEANS.has(key)) {
+			return <SwitchField key={key} id={id} label={labelOf(key)} hint={hint} checked={value === true} onEdit={(checked) => { edit(key, checked); }} />;
+		}
+		if (ENUMS[key] !== void 0) {
+			const options = ENUMS[key].map((option) => {
+				const labelKey = `opt_${key}_${option === "" ? "empty" : option}`;
+				const label = t(labelKey);
+				return { value: option, label: label === labelKey || label.startsWith("<missing") ? (option.length > 0 ? option : "—") : label };
+			});
+			const current = String(value) === "" ? defaultText(entry, key) : String(value);
+			return <ChoiceField key={key} id={id} label={labelOf(key)} hint={hint} value={current} options={options} onEdit={(next) => { edit(key, next); }} />;
+		}
+		const numeric = NUMBERS.has(key);
+		const text = String(value);
+		const invalid = numeric && text.length > 0 && !/^\d+$/u.test(text);
+		return <ValueField
+			key={key}
+			id={id}
+			label={labelOf(key)}
+			hint={hint}
+			text={text}
+			placeholder={placeholder}
+			numeric={numeric}
+			invalid={invalid}
+			invalidLabel={key === "count" ? t("invalidCount") : t("invalidNumber")}
+			disabled={key === "model" && entry?.modelLocked === true}
+			onEdit={(next) => { edit(key, next); }}
+		/>;
+	};
+
+	const chatVariant = String(stagedValue(draft, entry, "chatVariant") || entry?.defaults.chatVariant || "zhipu");
+	const isCustomChat = entry?.support === "custom" && entry.protocol === "chat-completions";
+	const variantFields = isCustomChat ? new Set(CHAT_VARIANT_FIELDS[chatVariant] ?? []) : void 0;
+	/** `chatVariant` 由模板决定并随配置保存，但不作为用户可选项展示。 */
+	const fields = (entry?.fields ?? []).filter((key) => key !== "template" && key !== "chatVariant" && (
+		variantFields === void 0 || !CHAT_VARIANT_ONLY.has(key) || variantFields.has(key)
+	));
+	const basic = fields.filter((key) => !ADVANCED.has(key));
+	const advanced = fields.filter((key) => ADVANCED.has(key));
+
 	return (
 		<div className="dwsd-body">
-			{!loaded && !loadFailed ? <p className="dwsd-status" role="status">{t("loading")}</p> : null}
-			{loadFailed ? <p className="dwsd-failed" role="status">{t("loadFailed")}</p> : null}
-			{loaded ? [
-				<ChoiceField
-					key="mode"
-					id="plugin-config-web-search-diy-mode"
-					label={t("mode")}
-					hint={t("modeHint")}
-					value={draft.mode}
-					options={[
-						{ value: "anthropic-messages", label: t("modeAnthropic") },
-						{ value: "responses", label: t("modeResponses") },
-						{ value: "zhipu-web-search", label: t("modeZhipuWeb") },
-						{ value: "zhipu-chat-search", label: t("modeZhipuChat") }
-					]}
-					onEdit={(value) => {
-						setDraft(draftForMode(value as Mode, buckets));
-					}}
-				/>,
-				<ValueField
-					key="baseURL"
-					id="plugin-config-web-search-diy-base-url"
-					label={t("baseURL")}
-					hint={draft.mode === "responses" ? t("baseURLHintResponses") : t("baseURLHint")}
-					placeholder={OFFICIAL_ENDPOINTS[modeFamily(draft.mode)][0]}
-					text={draft.baseURL}
-					onEdit={(text) => {
-						setDraft((current) => ({ ...current, baseURL: text }));
-					}}
-				/>,
-				<ValueField
-					key="apiKeyEnv"
-					id="plugin-config-web-search-diy-api-key-env"
-					label={t("apiKeyEnv")}
-					hint={t("apiKeyEnvHint")}
-					text={draft.apiKeyEnv}
-					onEdit={(text) => {
-						setDraft((current) => ({ ...current, apiKeyEnv: text }));
-					}}
-				/>,
-				isZhipu ? <ChoiceField
-					key="searchEngine"
-					id="plugin-config-web-search-diy-search-engine"
-					label={t("searchEngine")}
-					hint={t("searchEngineHint")}
-					value={draft.searchEngine}
-					options={[
-						{ value: "search_std", label: t("engineStd") },
-						{ value: "search_pro", label: t("enginePro") },
-						{ value: "search_pro_sogou", label: t("engineSogou") },
-						{ value: "search_pro_quark", label: t("engineQuark") }
-					]}
-					onEdit={(value) => {
-						setDraft((current) => ({ ...current, searchEngine: value as Draft["searchEngine"] }));
-					}}
-				/> : null,
-				isZhipu ? <ValueField
-					key="count"
-					id="plugin-config-web-search-diy-count"
-					label={t("count")}
-					hint={countEngineNote !== "" ? `${t("countHint")} ${countEngineNote}` : t("countHint")}
-					numeric
-					invalid={countInvalid}
-					invalidLabel={t("invalidCount")}
-					text={draft.count}
-					onEdit={(text) => {
-						setDraft((current) => ({ ...current, count: text }));
-					}}
-				/> : null,
-				isZhipu ? <ChoiceField
-					key="searchRecencyFilter"
-					id="plugin-config-web-search-diy-recency"
-					label={t("searchRecencyFilter")}
-					hint={t("searchRecencyHint")}
-					value={draft.searchRecencyFilter}
-					options={[
-						{ value: "noLimit", label: t("recencyNoLimit") },
-						{ value: "oneDay", label: t("recencyOneDay") },
-						{ value: "oneWeek", label: t("recencyOneWeek") },
-						{ value: "oneMonth", label: t("recencyOneMonth") },
-						{ value: "oneYear", label: t("recencyOneYear") }
-					]}
-					onEdit={(value) => {
-						setDraft((current) => ({ ...current, searchRecencyFilter: value as Draft["searchRecencyFilter"] }));
-					}}
-				/> : null,
-				isZhipu ? <ChoiceField
-					key="contentSize"
-					id="plugin-config-web-search-diy-content-size"
-					label={t("contentSize")}
-					hint={t("contentSizeHint")}
-					value={draft.contentSize}
-					options={[
-						{ value: "medium", label: t("sizeMedium") },
-						{ value: "high", label: t("sizeHigh") }
-					]}
-					onEdit={(value) => {
-						setDraft((current) => ({ ...current, contentSize: value as Draft["contentSize"] }));
-					}}
-				/> : null,
-				isZhipu ? <ValueField
-					key="searchDomainFilter"
-					id="plugin-config-web-search-diy-domain-filter"
-					label={t("searchDomainFilter")}
-					hint={domainEngineNote !== "" ? `${t("searchDomainHint")} ${domainEngineNote}` : t("searchDomainHint")}
-					text={draft.searchDomainFilter}
-					onEdit={(text) => {
-						setDraft((current) => ({ ...current, searchDomainFilter: text }));
-					}}
-				/> : null,
-				draft.mode === "zhipu-web-search" ? <SwitchField
-					key="searchIntent"
-					id="plugin-config-web-search-diy-search-intent"
-					label={t("searchIntent")}
-					hint={t("searchIntentHint")}
-					checked={draft.searchIntent}
-					onEdit={(checked) => {
-						setDraft((current) => ({ ...current, searchIntent: checked }));
-					}}
-				/> : null,
-				draft.mode === "zhipu-chat-search" ? <ChoiceField
-					key="reasoningEffort"
-					id="plugin-config-web-search-diy-reasoning-effort"
-					label={t("reasoningEffort")}
-					hint={t("reasoningEffortHint")}
-					value={draft.reasoningEffort}
-					options={[
-						{ value: "low", label: t("effortLow") },
-						{ value: "high", label: t("effortHigh") },
-						{ value: "max", label: t("effortMax") }
-					]}
-					onEdit={(value) => {
-						setDraft((current) => ({ ...current, reasoningEffort: value as Draft["reasoningEffort"] }));
-					}}
-				/> : null,
-				draft.mode === "zhipu-chat-search" ? <SwitchField
-					key="requireSearch"
-					id="plugin-config-web-search-diy-require-search"
-					label={t("requireSearch")}
-					hint={t("requireSearchHint")}
-					checked={draft.requireSearch}
-					onEdit={(checked) => {
-						setDraft((current) => ({ ...current, requireSearch: checked }));
-					}}
-				/> : null,
-				draft.mode === "zhipu-chat-search" ? <ValueField
-					key="searchPrompt"
-					id="plugin-config-web-search-diy-search-prompt"
-					label={t("searchPrompt")}
-					hint={t("searchPromptHint")}
-					text={draft.searchPrompt}
-					onEdit={(text) => {
-						setDraft((current) => ({ ...current, searchPrompt: text }));
-					}}
-				/> : null,
-				draft.mode !== "zhipu-web-search" ? <ValueField
-					key="model"
-					id="plugin-config-web-search-diy-model"
-					label={t("model")}
-					hint={t("modelHint")}
-					text={draft.model}
-					onEdit={(text) => {
-						setDraft((current) => ({ ...current, model: text }));
-					}}
-				/> : null,
-				draft.mode !== "zhipu-web-search" ? <ValueField
-					key="maxOutputTokens"
-					id="plugin-config-web-search-diy-max-output-tokens"
-					label={t("maxOutputTokens")}
-					hint={t("maxOutputTokensHint")}
-					placeholder={String(MODE_MAX_OUTPUT_TOKENS[draft.mode])}
-					numeric
-					invalid={tokensInvalid}
-					invalidLabel={t("invalidNumber")}
-					text={draft.maxOutputTokens}
-					onEdit={(text) => {
-						setDraft((current) => ({ ...current, maxOutputTokens: text }));
-					}}
-				/> : null,
-				draft.mode === "anthropic-messages" ? <ValueField
-					key="apiVersion"
-					id="plugin-config-web-search-diy-api-version"
-					label={t("apiVersion")}
-					hint={t("apiVersionHint")}
-					text={draft.apiVersion}
-					onEdit={(text) => {
-						setDraft((current) => ({ ...current, apiVersion: text }));
-					}}
-				/> : null,
-				draft.mode === "anthropic-messages" ? <ValueField
-					key="maxUses"
-					id="plugin-config-web-search-diy-max-uses"
-					label={t("maxUses")}
-					hint={t("maxUsesHint")}
-					numeric
-					invalid={maxUsesInvalid}
-					invalidLabel={t("invalidNumber")}
-					text={draft.maxUses}
-					onEdit={(text) => {
-						setDraft((current) => ({ ...current, maxUses: text }));
-					}}
-				/> : null,
-				draft.mode === "anthropic-messages" ? <ChoiceField
-					key="anthropicThinking"
-					id="plugin-config-web-search-diy-anthropic-thinking"
-					label={t("anthropicThinking")}
-					hint={t("anthropicThinkingHint")}
-					value={draft.anthropicThinking}
-					options={[
-						{ value: "default", label: t("effortDefault") },
-						{ value: "disabled", label: t("thinkingOff") }
-					]}
-					onEdit={(value) => {
-						setDraft((current) => ({ ...current, anthropicThinking: value as Draft["anthropicThinking"] }));
-					}}
-				/> : null,
-				draft.mode === "anthropic-messages" ? <ChoiceField
-					key="anthropicEffort"
-					id="plugin-config-web-search-diy-anthropic-effort"
-					label={t("anthropicEffort")}
-					hint={t("anthropicEffortHint")}
-					value={draft.anthropicEffort}
-					options={[
-						{ value: "", label: t("effortDefault") },
-						{ value: "low", label: t("effortLow") },
-						{ value: "medium", label: t("effortMedium") },
-						{ value: "high", label: t("effortHigh") },
-						{ value: "xhigh", label: t("effortXhigh") },
-						{ value: "max", label: t("effortMax") }
-					]}
-					onEdit={(value) => {
-						setDraft((current) => ({ ...current, anthropicEffort: value as Draft["anthropicEffort"] }));
-					}}
-				/> : null,
-				draft.mode === "responses" ? <ChoiceField
-					key="responsesReasoningEffort"
-					id="plugin-config-web-search-diy-responses-reasoning-effort"
-					label={t("responsesReasoningEffort")}
-					hint={t("responsesReasoningEffortHint")}
-					value={draft.responsesReasoningEffort}
-					options={[
-						{ value: "", label: t("effortDefault") },
-						{ value: "minimal", label: t("effortMinimal") },
-						{ value: "low", label: t("effortLow") },
-						{ value: "medium", label: t("effortMedium") },
-						{ value: "high", label: t("effortHigh") },
-						{ value: "xhigh", label: t("effortXhigh") }
-					]}
-					onEdit={(value) => {
-						setDraft((current) => ({ ...current, responsesReasoningEffort: value as Draft["responsesReasoningEffort"] }));
-					}}
-				/> : null,
-				draft.mode === "responses" ? <SwitchField
-					key="responsesIncludeSources"
-					id="plugin-config-web-search-diy-responses-include-sources"
-					label={t("responsesIncludeSources")}
-					hint={t("responsesIncludeSourcesHint")}
-					checked={draft.responsesIncludeSources}
-					onEdit={(checked) => {
-						setDraft((current) => ({ ...current, responsesIncludeSources: checked }));
-					}}
-				/> : null,
-				draft.mode === "responses" ? <ChoiceField
-					key="responsesToolType"
-					id="plugin-config-web-search-diy-responses-tool-type"
-					label={t("responsesToolType")}
-					hint={t("responsesToolTypeHint")}
-					value={draft.responsesToolType}
-					options={[
-						{ value: "web_search", label: "web_search" },
-						{ value: "openrouter:web_search", label: "openrouter:web_search" },
-						{ value: "web_search_20250305", label: "web_search_20250305" }
-					]}
-					onEdit={(value) => {
-						setDraft((current) => ({ ...current, responsesToolType: value as Draft["responsesToolType"] }));
-					}}
-				/> : null,
-				<SecretField
-					key="apiKey"
-					id="plugin-config-web-search-diy-api-key"
-					label={t("apiKey")}
-					hint={t("apiKeyHint")}
-					text={apiKeyDraft}
-					configured={saved.keyConfigured}
-					stateLabel={saved.keyConfigured ? t("apiKeySet") : t("apiKeyUnset")}
-					onEdit={setApiKeyDraft}
-				/>
-			] : null}
+			<div className="dwsd-field">
+				<div className="dwsd-head">
+					<span className="dwsd-label">{t("shape")}</span>
+				</div>
+				<div className="dwsd-choices" role="radiogroup" aria-label={t("shape")}>
+					{(["in-protocol", "standalone"] as const).map((value) => (
+						<label className="dwsd-choice" key={value}>
+							<input id={`plugin-config-web-search-diy-shape-${value}`} type="radio" name="plugin-config-web-search-diy-shape" value={value} checked={shape === value} onChange={() => { chooseShape(value); }} />
+							<span className="dwsd-choiceLabel">{value === "in-protocol" ? t("shapeInProtocol") : t("shapeStandalone")}</span>
+						</label>
+					))}
+				</div>
+				<p className="dwsd-hint">{t("description")}</p>
+			</div>
+			{shapeProtocols.length > 1 ? <div className="dwsd-field">
+				<div className="dwsd-head">
+					<span className="dwsd-label">{t("protocol")}</span>
+				</div>
+				<div className="dwsd-choices" role="radiogroup" aria-label={t("protocol")}>
+					{shapeProtocols.map((value) => (
+						<label className="dwsd-choice" key={value}>
+							<input id={`plugin-config-web-search-diy-protocol-${value}`} type="radio" name="plugin-config-web-search-diy-protocol" value={value} checked={protocol === value} onChange={() => { chooseProtocol(value); }} />
+							<span className="dwsd-choiceLabel">{protocolLabel(t, value)}</span>
+						</label>
+					))}
+				</div>
+			</div> : null}
+			<div className="dwsd-field">
+				<div className="dwsd-head">
+					<span className="dwsd-label">{t("vendor")}</span>
+				</div>
+				<div className="dwsd-choices" role="radiogroup" aria-label={t("vendor")}>
+					{vendorEntries.map((item) => (
+						<label className="dwsd-choice" key={item.id}>
+							<input
+								id={`plugin-config-web-search-diy-vendor-${item.vendor}`}
+								type="radio"
+								name="plugin-config-web-search-diy-vendor"
+								value={item.vendor}
+								checked={vendor === item.vendor}
+								onChange={() => {
+									const nextId = `${item.vendor}/${protocol}`;
+									const next = catalog.find((entryItem) => entryItem.id === nextId);
+									setVendor(item.vendor);
+									setApiKey("");
+									setLastTemplate(null);
+									setPendingTemplate(null);
+									setDrafts((current) => current[nextId] !== void 0 ? current : { ...current, [nextId]: seededDraft(next) });
+								}}
+							/>
+							<span className="dwsd-choiceLabel">
+								{vendorLabel(t, item.vendor)} · {supportLabel(t, item.support)}
+								{item.support === "degraded" && item.reason.length > 0 ? <span className="dwsd-choiceReason">{item.reason}</span> : null}
+							</span>
+						</label>
+					))}
+				</div>
+			</div>
+			{unsupportedEntries.length > 0 ? (
+				<details className="dwsd-advanced">
+					<summary>{t("unsupportedVendors")} ({unsupportedEntries.length})</summary>
+					{unsupportedEntries.map((item) => (
+						<p className="dwsd-notice" key={item.id}>{vendorLabel(t, item.vendor)} · {protocolLabel(t, item.protocol)} — {item.reason}</p>
+					))}
+				</details>
+			) : null}
+			{entry?.support === "custom" ? <p className="dwsd-notice">{t("customNotice")}</p> : null}
+			{entry?.templates !== void 0 ? (
+				<div className="dwsd-field">
+					<SelectField
+						id={`plugin-config-web-search-diy-${currentId.replace(/[^a-z0-9]+/gu, "-")}-template`}
+						label={t("fillFromTemplate")}
+						hint={t("templateFillHint")}
+						value=""
+						placeholder={lastTemplate === null ? t("templatePlaceholder") : t("templateUsed").replace("{name}", lastTemplate)}
+						options={entry.templates.map((item) => ({ value: item.id, label: item.label }))}
+						onChange={(next) => { chooseTemplate(next); }}
+					/>
+					{pendingTemplate !== null ? (
+						<div className="dwsd-confirm">
+							<p className="dwsd-failed" role="alert">{t("templateOverwrite").replace("{name}", pendingTemplate.label)}</p>
+							<button type="button" className="dwsd-discard" onClick={confirmTemplate}>{t("templateApply")}</button>
+							<button type="button" className="dwsd-discard" onClick={() => { setPendingTemplate(null); }}>{t("templateCancel")}</button>
+						</div>
+					) : null}
+					{snapshot.targets?.[currentId] !== void 0 ? <button type="button" className="dwsd-discard" onClick={resetToSaved}>{t("resetToSaved")}</button> : null}
+				</div>
+			) : null}
+			{entry !== void 0 && entry.support !== "unsupported" ? <div>{basic.map(renderField)}</div> : null}
+			{entry !== void 0 && entry.support !== "unsupported" && advanced.length > 0 ? (
+				<details className="dwsd-advanced">
+					<summary>{t("advanced")}</summary>
+					{advanced.map(renderField)}
+				</details>
+			) : null}
+			<SecretField
+				id="plugin-config-web-search-diy-api-key"
+				label={t("apiKey")}
+				hint={t("apiKeyHint")}
+				text={apiKey}
+				configured={credentialConfigured}
+				stateLabel={credentialLabel}
+				disabled={entry?.support === "unsupported"}
+				onEdit={setApiKey}
+			/>
 			<div className="dwsd-footer">
-				{failed ? <p className="dwsd-failed" role="status">{failed}</p> : null}
+				{dirty ? <span className="dwsd-badgeMuted">{t("unsaved")}</span> : null}
+				{testResult !== null ? <p className={testResult.warn ? "dwsd-failed" : "dwsd-hint"} role="status">{testResult.text}</p> : null}
+				<button type="button" className="dwsd-discard" disabled={testing || entry?.support === "unsupported"} onClick={() => { void test(); }}>{t(testing ? "testing" : "test")}</button>
+				{failed !== null ? <p className="dwsd-failed" role="status">{failed}</p> : null}
 				<button type="button" className="dwsd-discard" disabled={!dirty || saving} onClick={discard}>{t("discard")}</button>
-				<button type="button" className="dwsd-save" disabled={blocked} onClick={save}>{t(saving ? "saving" : "save")}</button>
+				<button type="button" className="dwsd-save" disabled={!dirty || saving || entry?.support === "unsupported"} onClick={() => { void save(); }}>{t(saving ? "saving" : "save")}</button>
 			</div>
 		</div>
 	);
@@ -1078,15 +1435,9 @@ function ConfigPage(props: { t: (key: string) => string }) {
 /**
  * Register the row's configuration entry on the Plugins page.
  *
- * `plugins.row.config` is a KEYED slot keyed by `<package name>#<row id>`:
- * `web-search-diy` is the row id the bundle's cordis.patch.yml inserts, so
- * the key is `dsh-web-search-diy#web-search-diy` (the patch declaring the
- * row is the slot's precondition, and the entry lives only while the row
- * is enabled). `locale: NS` is what hands the component its `t` — the same
- * mechanism the official entries use, which is why the page follows
- * Settings → Language like they do. The owner asks for two views:
- * `summary` renders the one-liner under the row title, `page` mounts the
- * form (the page itself draws the title, icon, and crumb).
+ * `plugins.row.config` is keyed by `<package name>#<row id>`:
+ * `dsh-web-search-diy#web-search-diy`. `locale: NS` is what hands the component its
+ * `t`, so the page follows Settings → Language.
  */
 function apply(ctx: PluginContext): void {
 	ctx.effect(() => {
