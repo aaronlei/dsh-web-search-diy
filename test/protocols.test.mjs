@@ -24,6 +24,22 @@ function optionsFor(target, bucket = {}) {
 	return resolveOptions(ctx, { version: 3, targets: { [target]: bucket } }, target);
 }
 
+/** Resolve options whose initiator session carries `question` as its latest human prompt. */
+function optionsWithQuestion(target, bucket, question, { noAgents = false } = {}) {
+	const session = {
+		deriveMessages: () => [
+			{ role: "assistant", source: { kind: "assistant" }, content: [{ type: "text", text: "answer" }] },
+			...(question === void 0 ? [] : [{ role: "user", source: { kind: "user" }, content: [{ type: "text", text: question }] }])
+		]
+	};
+	const sessionCtx = {
+		get: (name) => name === "credentials"
+			? { resolve: async () => ({ value: "sk-test" }) }
+			: name === "agents" && !noAgents ? { currentInitiator: () => ({ session }) } : void 0
+	};
+	return resolveOptions(sessionCtx, { version: 3, targets: { [target]: bucket } }, target);
+}
+
 /**
  * Run one search against a scripted fetch. Each entry is `{ body, status? }`; the last
  * entry repeats. Returns the captured calls and the result (or the thrown error).
@@ -380,6 +396,67 @@ describe("standalone targets", () => {
 		assert.equal(calls[0].body.count, 5);
 		assert.equal(calls[0].body.localization, void 0);
 		assert.deepEqual(result.sources, [{ url: "https://e.example/1", title: "E", snippet: "snippet" }]);
+	});
+
+	it("truncates DeepSeek's query to its 128-character limit", async () => {
+		const longQuery = "查".repeat(200);
+		const { calls } = await runSearch(optionsFor("deepseek/search"), [{ body: DEEPSEEK_SEARCH_BODY }], { query: longQuery, maxResults: 5 });
+		assert.equal(calls[0].body.query, "查".repeat(128));
+	});
+
+	it("rejects an empty query before calling the endpoint", async () => {
+		await assert.rejects(
+			runSearch(optionsFor("deepseek/search"), [{ body: DEEPSEEK_SEARCH_BODY }], { query: "   " }),
+			(error) => error instanceof WebError && /query is empty/u.test(error.message)
+		);
+	});
+
+	it("sends localization only when it is a valid IP", async () => {
+		const valid = await runSearch(optionsFor("deepseek/search", { localization: "2001:db8::1" }), [{ body: DEEPSEEK_SEARCH_BODY }]);
+		assert.equal(valid.calls[0].body.localization, "2001:db8::1");
+		const invalid = await runSearch(optionsFor("deepseek/search", { localization: "not-an-ip" }), [{ body: DEEPSEEK_SEARCH_BODY }]);
+		assert.equal(invalid.calls[0].body.localization, void 0);
+	});
+
+	it("sends the latest user prompt as ori_question by default", async () => {
+		const options = optionsWithQuestion("deepseek/search", {}, "  哪个   模型\n更强？ ");
+		const { calls } = await runSearch(options, [{ body: DEEPSEEK_SEARCH_BODY }]);
+		assert.equal(calls[0].body.ori_question, "哪个 模型 更强？");
+	});
+
+	it("bounds ori_question to 128 characters", async () => {
+		const options = optionsWithQuestion("deepseek/search", {}, "问".repeat(200));
+		const { calls } = await runSearch(options, [{ body: DEEPSEEK_SEARCH_BODY }]);
+		assert.equal([...calls[0].body.ori_question].length, 128);
+	});
+
+	it("omits ori_question when the switch is off", async () => {
+		const options = optionsWithQuestion("deepseek/search", { oriQuestion: false }, "原问题");
+		const { calls } = await runSearch(options, [{ body: DEEPSEEK_SEARCH_BODY }]);
+		assert.equal(calls[0].body.ori_question, void 0);
+	});
+
+	it("omits ori_question without an agent session", async () => {
+		const options = optionsWithQuestion("deepseek/search", {}, "原问题", { noAgents: true });
+		const { calls } = await runSearch(options, [{ body: DEEPSEEK_SEARCH_BODY }]);
+		assert.equal(calls[0].body.ori_question, void 0);
+	});
+
+	it("omits ori_question when the session has no user prompt", async () => {
+		const options = optionsWithQuestion("deepseek/search", {}, void 0);
+		const { calls } = await runSearch(options, [{ body: DEEPSEEK_SEARCH_BODY }]);
+		assert.equal(calls[0].body.ori_question, void 0);
+	});
+
+	it("carries ori_question through a custom DeepSeek-template target", async () => {
+		const options = optionsWithQuestion("custom/search", {
+			template: "deepseek",
+			baseURL: "https://gw.example",
+			path: "/v1/search",
+			apiKeyEnv: "GW_KEY"
+		}, "自定义网关原问题");
+		const { calls } = await runSearch(options, [{ body: DEEPSEEK_SEARCH_BODY }]);
+		assert.equal(calls[0].body.ori_question, "自定义网关原问题");
 	});
 
 	it("posts kimi's text_query body and parses search_results[]", async () => {

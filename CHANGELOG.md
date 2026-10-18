@@ -5,6 +5,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-10-18
+
+### Added
+
+- **`oriQuestion` is back, now with a real data source.** DSH v0.2.1-rc.2
+  ships `web-deepseek-api` with `sendOriginalQuestion`, which reads the latest
+  human prompt from the initiating Session. This plugin uses the same source:
+  the last `source.kind === "user"` message on
+  `agents.currentInitiator().session`, whitespace collapsed and cut to 128
+  characters, sent as `ori_question`. It is enabled by default for the DeepSeek
+  template (built-in and custom) and omitted outside a session or when no human
+  prompt exists.
+
+### Fixed
+
+- **DeepSeek queries are truncated to the documented 128-character limit**
+  instead of being rejected with 400. OpenAI-style emoji surrogate pairs are
+  cut by code point, never mid-character.
+- **A malformed `localization` value is omitted instead of sent.** The field now
+  accepts only a valid IPv4/IPv6 address, so a non-IP entry can no longer cause
+  a 400; blank and malformed values both mean "not provided".
+
 ## [2.0.0] - 2026-10-18
 
 ### Added

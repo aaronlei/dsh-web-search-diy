@@ -7,6 +7,8 @@
  */
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import type { Context } from "@deepseek-ai/cordis";
+import type {} from "@deepseek-ai/dsh-agent";
+import type { Session } from "@deepseek-ai/dsh-session";
 import { launchEnvironmentOf } from "@deepseek-ai/dsh-launch-environment";
 import { capabilityOf, CATALOG, DEFAULT_TARGET, joinEndpoint, type Protocol, type TargetId, type Vendor } from "./catalog.ts";
 import type { ConfigDocument } from "./config.ts";
@@ -65,7 +67,7 @@ const DEFAULT_SETTINGS: ResolvedSettings = {
 	timeoutSeconds: 30,
 	digestEntries: 8,
 	digestSnippetChars: 200,
-	oriQuestion: false,
+	oriQuestion: true,
 	localization: "",
 	template: "",
 	chatVariant: "zhipu",
@@ -86,6 +88,25 @@ function defaultSettingsOf(targetId: TargetId): Partial<ResolvedSettings> {
 	if (capability === void 0) return {};
 	const { apiKeyEnv: _ignored, ...rest } = capability.defaults;
 	return rest as Partial<ResolvedSettings>;
+}
+
+/**
+ * 本次触发搜索的用户原问题。
+ *
+ * 与官方 `web-deepseek-api` 同源：当前 initiator 的 Session 中最后一条
+ * `source.kind === "user"` 的文本。搜索不在会话内时返回 undefined。
+ *
+ * @param session - 发起搜索的会话，可缺省。
+ * @returns 原问题文本；没有可用提问时 undefined。
+ */
+function latestUserQuestion(session: Session | undefined): string | undefined {
+	const messages = session?.deriveMessages() ?? [];
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		const message = messages[index];
+		if (message.role !== "user" || message.source.kind !== "user") continue;
+		return message.content.flatMap((block) => block.type === "text" ? [block.text] : []).join("\n");
+	}
+	return void 0;
 }
 
 /**
@@ -148,7 +169,11 @@ export function resolveOptions(ctx: Context, document: ConfigDocument, targetId:
 		 */
 		recordRequest: (request) => {
 			ctx.get("agents")?.currentInitiator()?.session.append("web/deepseek-search-llm-request", request);
-		}
+		},
+		/** 只有显式开启时才读取会话，避免每次搜索都触碰 agent 状态。 */
+		originalQuestion: merged.oriQuestion
+			? () => latestUserQuestion(ctx.get("agents")?.currentInitiator()?.session)
+			: void 0
 	};
 }
 

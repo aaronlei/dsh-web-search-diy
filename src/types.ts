@@ -4,6 +4,7 @@
  * @module dsh-web-search-diy/types
  */
 import type { Capability, TargetId } from "./catalog.ts";
+import type {} from "@deepseek-ai/dsh-session";
 
 /** 一次搜索实际发送到模型端点的请求，记录在调用会话上供审计。 */
 export interface RecordedSearchRequest {
@@ -63,6 +64,7 @@ export interface ResolvedSettings {
 	digestEntries: number;
 	/** 摘要里每条结果最多保留多少字符。 */
 	digestSnippetChars: number;
+	/** 是否把本次触发搜索的用户原话作为 `ori_question` 发送（仅 DeepSeek 模板）。 */
 	oriQuestion: boolean;
 	localization: string;
 	template: string;
@@ -100,6 +102,15 @@ export interface SearchOptions {
 	readonly apiKeyEnvFallbacks: readonly string[];
 	/** 解析凭据；undefined 表示当前没有可用凭据。 */
 	readonly resolveApiKey: () => Promise<string | undefined>;
+	/** 读取本次触发搜索的用户原问题；开关关闭或不在会话中时为 undefined。 */
+	readonly originalQuestion?: () => string | undefined;
 	/** 把出站请求记录到调用会话；不会抛错。 */
 	readonly recordRequest?: (request: RecordedSearchRequest) => void;
+}
+
+declare module "@deepseek-ai/dsh-session" {
+	interface SessionEventMap {
+		/** 本插件记录的一次出站模型请求，供会话审计。 */
+		"web/deepseek-search-llm-request": RecordedSearchRequest;
+	}
 }

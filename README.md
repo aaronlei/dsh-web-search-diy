@@ -147,6 +147,8 @@ Location: **Plugins → dsh-web-search-diy → the `web-search-diy` row's "Confi
 | Chat · OpenAI | no search parameters; the model is locked to `gpt-5-search-api` |
 | Standalone | `count`, `includeContent`, `searchEngine` / `contentSize` / `searchIntent` / `searchRecencyFilter` / `searchDomainFilter` (Zhipu), `oriQuestion` / `localization` (DeepSeek), `timeoutSeconds` (Kimi), `digestEntries`, `digestSnippetChars`; custom adds `path` and the 8 mapping fields |
 
+> `oriQuestion` sends the human prompt that triggered the search as DeepSeek's `ori_question`: whitespace collapsed, cut to 128 characters, read from the initiating Session and omitted outside one. It shares the source used by the official `web-deepseek-api` provider (`sendOriginalQuestion`).
+
 > Result count and digest size are independent: `count` / `limit` drive the request and the number of `sources` (1–50 for Zhipu/DeepSeek, 1–20 for Kimi); `digestEntries` (default 8) and `digestSnippetChars` (default 200) only shape the `content` digest returned to the caller and never trim `sources`.
 
 ### Custom targets

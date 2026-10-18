@@ -239,13 +239,13 @@ export const CATALOG: Record<string, Capability> = {
 			apiKeyEnv: ["DEEPSEEK_API_KEY"],
 			count: 10,
 			includeContent: false,
-			oriQuestion: false,
+			oriQuestion: true,
 			localization: "",
 			digestEntries: 8,
 			digestSnippetChars: 200
 		},
 		fields: [...CONNECTION, "count", "includeContent", "oriQuestion", "localization", "digestEntries", "digestSnippetChars"],
-		hints: { localization: "填 IP 地址（用于地域），留空不发送；服务端要求合法 IP" },
+		hints: { localization: "填 IP 地址（用于地域），留空不发送；非 IPv4/IPv6 会被忽略" },
 		search: { kind: "standalone", path: "/v1/tools/search", sourceQuality: "full" }
 	},
 	"kimi/responses": {
@@ -764,13 +764,14 @@ export const CUSTOM_TARGETS: Record<string, Capability> = {
 			template: "zhipu",
 			path: "/web_search",
 			includeContent: false,
+			oriQuestion: true,
 			...ZHIPU_DEFAULTS,
 			/** 自定义网关的引擎取值各不相同：留空不发送，由模板或用户填写。 */
 			searchEngine: "",
 			digestEntries: 8,
 			digestSnippetChars: 200
 		},
-		fields: [...CONNECTION, "path", "count", "includeContent", "searchRecencyFilter", "contentSize", "searchIntent", "searchDomainFilter", "searchEngine", "timeoutSeconds", "oriQuestion", "localization", "digestEntries", "digestSnippetChars", "queryField", "countField", "resultsPath", "urlField", "titleField", "snippetField", "dateField", "contentField"],
+		fields: [...CONNECTION, "path", "count", "includeContent", "oriQuestion", "searchRecencyFilter", "contentSize", "searchIntent", "searchDomainFilter", "searchEngine", "timeoutSeconds", "localization", "digestEntries", "digestSnippetChars", "queryField", "countField", "resultsPath", "urlField", "titleField", "snippetField", "dateField", "contentField"],
 		search: { kind: "standalone", path: "/web_search", sourceQuality: "partial" },
 		hints: {
 			template: "决定请求字段名与响应结构；字段名可被高级项覆盖",
@@ -803,6 +804,7 @@ export const CUSTOM_TARGETS: Record<string, Capability> = {
 					apiKeyEnv: ["DEEPSEEK_API_KEY"],
 					path: "/v1/tools/search",
 					count: 10,
+					oriQuestion: true,
 					localization: "",
 					queryField: "query",
 					countField: "count",

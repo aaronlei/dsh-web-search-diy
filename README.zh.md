@@ -147,6 +147,8 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 | Chat · OpenAI | 无搜索参数；模型锁定 `gpt-5-search-api` |
 | 纯工具 | `count`、`includeContent`、`searchEngine` / `contentSize` / `searchIntent` / `searchRecencyFilter` / `searchDomainFilter`（智谱）、`oriQuestion` / `localization`（DeepSeek）、`timeoutSeconds`（Kimi）、`digestEntries`、`digestSnippetChars`；自定义另含 `path` 与 8 个映射字段 |
 
+> `oriQuestion` 把本次触发搜索的用户原话作为 DeepSeek 的 `ori_question` 发送：折叠连续空白、截断到 128 字符，取自当前发起会话，不在会话中时自动省略。与官方 `web-deepseek-api` 的 `sendOriginalQuestion` 使用同一数据源。
+
 > 纯工具的结果条数与摘要条数相互独立：`count` / `limit` 决定请求与 `sources` 数量（智谱/DeepSeek 1–50，Kimi 1–20）；`digestEntries`（默认 8）与 `digestSnippetChars`（默认 200）只控制返回给调用方的 `content` 摘要，不裁剪 `sources`。
 
 ### 自定义接入

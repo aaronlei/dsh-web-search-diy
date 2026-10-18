@@ -8,6 +8,7 @@
 import { WebError } from "@deepseek-ai/dsh-web";
 import type { WebSearchRequest, WebSearchResult } from "@deepseek-ai/dsh-web";
 import { randomUUID } from "node:crypto";
+import { isIP } from "node:net";
 import { splitList } from "../catalog.ts";
 import { isoPublishedAt, normalizeSourceUrl, type MutableSource } from "../mappers/sources.ts";
 import type { SearchOptions } from "../types.ts";
@@ -99,9 +100,58 @@ function fieldOf(item: Record<string, unknown>, override: string, fallback: stri
 	return key.length > 0 ? asString(item[key]) : void 0;
 }
 
+/** DeepSeek 的 `query` 硬上限是 128 个 Unicode 字符，超出会被端点直接 400。 */
+const DEEPSEEK_QUERY_LIMIT = 128;
+
+/** 按 Unicode 码点截断，避免把代理对切成半个字符。 */
+function truncateQuery(query: string, limit: number): string {
+	const characters = [...query];
+	return characters.length <= limit ? query : characters.slice(0, limit).join("");
+}
+
+/**
+ * 规范搜索词：空串没有可发送的内容；DeepSeek 超长查询截断到上限。
+ *
+ * 智谱的 70 字符只是文档建议而非硬限制，Kimi 未声明上限，因此不做截断。
+ *
+ * @param templateId - 模板 id。
+ * @param query - seam 传入的搜索词。
+ * @returns 可发送的搜索词。
+ * @throws {WebError} 查询为空时。
+ */
+function normalizeQuery(templateId: string, query: string): string {
+	const trimmed = query.trim();
+	if (trimmed.length === 0) throw new WebError("web search query is empty", "WEB_PROVIDER_ERROR");
+	return templateId === "deepseek" ? truncateQuery(trimmed, DEEPSEEK_QUERY_LIMIT) : trimmed;
+}
+
+/** DeepSeek 只接受合法 IP；非法值发出去会 400，因此按未提供处理。 */
+function localizationOf(value: string): string | undefined {
+	const trimmed = value.trim();
+	return isIP(trimmed) === 0 ? void 0 : trimmed;
+}
+
+/** Search API 的 `ori_question` 上限，与 `query` 同为 128 个字符。 */
+const ORIGINAL_QUESTION_LIMIT = 128;
+
+/**
+ * 归一化原问题：折叠连续空白并截断到 128 个字符；空值表示不发送。
+ *
+ * 与官方 `web-deepseek-api` 的 `boundedQuestion` 保持一致。
+ *
+ * @param read - 会话原问题读取器；未开启或不在会话中时为 undefined。
+ * @returns 可直接发送的 `ori_question`，或 undefined。
+ */
+function originalQuestionOf(read: (() => string | undefined) | undefined): string | undefined {
+	const collapsed = read?.()?.replace(/\s+/gu, " ").trim() ?? "";
+	if (collapsed.length === 0) return void 0;
+	return [...collapsed].slice(0, ORIGINAL_QUESTION_LIMIT).join("");
+}
+
 /** 构造请求体；自定义的 `queryField` / `countField` 覆盖字段名。 */
 function buildBody(options: SearchOptions, query: string, maxResults: number | undefined, templateId: string, template: StandaloneTemplate): Record<string, unknown> {
 	const { settings, capability } = options;
+	const searchQuery = normalizeQuery(templateId, query);
 	const queryKey = template.queryField;
 	const countKey = template.countField;
 	const requested = typeof maxResults === "number" && Number.isInteger(maxResults) ? maxResults : settings.count;
@@ -109,17 +159,19 @@ function buildBody(options: SearchOptions, query: string, maxResults: number | u
 	const upper = templateId === "kimi" ? 20 : 50;
 	const count = Math.min(Math.max(requested, 1), upper);
 	if (templateId === "deepseek") {
+		const originalQuestion = originalQuestionOf(options.originalQuestion);
+		const localization = localizationOf(settings.localization);
 		return {
-			[queryKey]: query,
+			[queryKey]: searchQuery,
 			[countKey]: count,
-			...(settings.oriQuestion ? { ori_question: true } : {}),
+			...(originalQuestion !== void 0 ? { ori_question: originalQuestion } : {}),
 			...(settings.includeContent ? { need_content: true } : {}),
-			...(settings.localization.length > 0 ? { localization: settings.localization } : {})
+			...(localization !== void 0 ? { localization } : {})
 		};
 	}
 	if (templateId === "kimi") {
 		return {
-			[queryKey]: query,
+			[queryKey]: searchQuery,
 			[countKey]: count,
 			timeout_seconds: settings.timeoutSeconds,
 			...(settings.includeContent ? { include_content: true } : {})
@@ -127,7 +179,7 @@ function buildBody(options: SearchOptions, query: string, maxResults: number | u
 	}
 	/** 智谱模板：内置 target 用完整参数；自定义按 target 声明的字段发送。 */
 	const body: Record<string, unknown> = {
-		[queryKey]: query,
+		[queryKey]: searchQuery,
 		/** 智谱模板的 search_engine 是必填项：自定义网关留空时回落到 search_std，填了则用用户值。 */
 		search_engine: settings.searchEngine.length > 0 ? settings.searchEngine : "search_std",
 		search_intent: settings.searchIntent,
