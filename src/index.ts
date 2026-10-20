@@ -27,7 +27,7 @@ export const inject = ["web"];
 /**
  * 注册搜索 provider 与配置端点。
  *
- * 默认 target 在加载时按「已保存选择 → 可解析凭据 → `qwen/responses`」异步确定；
+ * 默认 target 在加载时按「已保存选择 → 可解析凭据 → DeepSeek 纯工具搜索」异步确定；
  * 每次搜索都重新读取文件，因此保存后立即生效，无需重启。
  *
  * @param ctx - Cordis 插件上下文。
@@ -42,8 +42,14 @@ export function apply(ctx: Context): void {
 	// profiles). Non-web compositions never provide webServer, so the inject
 	// simply never fires — no dedicated row or disabled flag is needed.
 	ctx.inject(["webServer"], (sctx) => {
-		/** The route registration returns a disposer; keep it on the plugin fiber so unload removes it. */
-		ctx.effect(() => registerConfigEndpoint(ctx, (sctx as unknown as { webServer: WebServerLike }).webServer), `${name}: config route`);
+		/**
+		 * The route registration returns a disposer. It belongs to the injected
+		 * child fiber (`sctx`), not this plugin's fiber: when `webServer` goes
+		 * away the child unloads, and its effect must release the routes before a
+		 * replacement server is provided — otherwise the same paths are registered
+		 * twice and the old ones linger.
+		 */
+		sctx.effect(() => registerConfigEndpoint(ctx, (sctx as unknown as { webServer: WebServerLike }).webServer), `${name}: config route`);
 	});
 }
 
@@ -60,13 +66,15 @@ export {
 	LEGACY_MODE_TARGETS,
 	OFFICIAL_TARGET_IDS,
 	PROTOCOLS,
+	SHAPE_DEFAULT_TARGETS,
 	splitList,
 	splitTargetId,
 	targetIdOf,
 	UNSUPPORTED_CATALOG,
 	VENDORS
 } from "./catalog.ts";
-export type { Capability, FieldKey, Protocol, SearchKind, Support, TargetId, TargetOptions, Template, Vendor } from "./catalog.ts";
+export type { Capability, FieldKey, Protocol, SearchKind, Shape, Support, TargetId, TargetOptions, Template, Vendor } from "./catalog.ts";
+export type { CatalogSnapshotEntry, ConfigSnapshot } from "./contract.ts";
 export {
 	buildConfigPatch,
 	CONFIG_VERSION,
@@ -78,6 +86,7 @@ export {
 	selectDefaultTarget
 } from "./config.ts";
 export { DEFAULT_API_VERSION, resolveCurrentOptions, resolveOptions, selectedTargetOf } from "./options.ts";
+export { USER_AGENT } from "./transport.ts";
 export { DiySearchProvider, OpenAiSearchProvider, PROVIDER_ID } from "./provider.ts";
 export { mapAnthropicResponse } from "./protocols/anthropic.ts";
 export { mapChatAnnotationsResponse, mapQwenChatResponse, mapZhipuChatResponse } from "./protocols/chat.ts";

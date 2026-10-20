@@ -848,8 +848,22 @@ export const CUSTOM_TARGET_IDS = Object.keys(CUSTOM_TARGETS) as TargetId[];
 /** 全部 target（含自定义与不支持项），供配置页渲染。 */
 export const ALL_TARGETS: Record<string, Capability> = { ...CATALOG, ...UNSUPPORTED_CATALOG, ...CUSTOM_TARGETS };
 
-/** 默认 target：与 1.x 的默认协议一致。 */
-export const DEFAULT_TARGET: TargetId = "qwen/responses";
+/** 搜索形态：`in-protocol` 走模型回合，`standalone` 是纯工具搜索。 */
+export type Shape = "in-protocol" | "standalone";
+
+/**
+ * 每种搜索形态的默认 target：切换搜索方式时落到这里，两边都优先 DeepSeek 官方组合。
+ *
+ * 协议内置形态下 DeepSeek 只有 Anthropic Messages 是完整支持（Responses 仅
+ * `deepseek-v4-pro`、来源不完整），因此默认协议是 `anthropic-messages`。
+ */
+export const SHAPE_DEFAULT_TARGETS: Readonly<Record<Shape, TargetId>> = {
+	"in-protocol": "deepseek/anthropic-messages",
+	standalone: "deepseek/search"
+};
+
+/** 默认 target：DeepSeek 官方纯工具搜索，不依赖模型回合，首次使用即可直接生效。 */
+export const DEFAULT_TARGET: TargetId = SHAPE_DEFAULT_TARGETS.standalone;
 
 /** 厂商展示顺序。 */
 export const VENDORS: readonly Vendor[] = ["deepseek", "kimi", "zhipu", "qwen", "openai", "anthropic", "openrouter", "custom"];

@@ -1,6 +1,6 @@
 {
   "name": "dsh-web-search-diy",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "DSH web search provider selected by vendor x protocol: Chat Completions, Responses, and Anthropic Messages with built-in search tools, plus the standalone search APIs of DeepSeek, Kimi, and Zhipu; four custom targets cover gateways; UI copy follows the app language (zh / en).",
   "icon": "./icon.svg",
   "license": "MIT",
@@ -27,7 +27,7 @@
     "./package.json": "./package.json"
   },
   "engines": {
-    "node": ">=18"
+    "node": "^22.19.0 || >=24.0.0"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-agent": "^0.2.0-rc.2 || ^0.2.1-rc.2",

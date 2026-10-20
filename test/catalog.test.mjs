@@ -2,6 +2,7 @@
  * 能力矩阵契约：17 个官方 target + 4 个自定义 + 1 个不支持项，字段与端点拼接一致。
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import {
 	CATALOG,
@@ -11,9 +12,14 @@ import {
 	hasField,
 	joinEndpoint,
 	OFFICIAL_TARGET_IDS,
+	SHAPE_DEFAULT_TARGETS,
 	splitTargetId,
-	UNSUPPORTED_CATALOG
+	UNSUPPORTED_CATALOG,
+	USER_AGENT
 } from "../lib/index.js";
+
+/** The published metadata, read from disk so a version bump cannot leave the UA stale. */
+const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
 describe("catalog matrix", () => {
 	it("covers 17 official targets, 4 custom targets, and 8 unsupported entries", () => {
@@ -74,8 +80,20 @@ describe("catalog matrix", () => {
 		}
 	});
 
-	it("points the default target at qwen/responses", () => {
-		assert.equal(DEFAULT_TARGET, "qwen/responses");
+	it("points the default target at DeepSeek standalone search", () => {
+		assert.equal(DEFAULT_TARGET, SHAPE_DEFAULT_TARGETS.standalone);
+		assert.equal(CATALOG[DEFAULT_TARGET].protocol, "search");
+		assert.equal(CATALOG[DEFAULT_TARGET].support, "full");
+	});
+
+	it("keeps the user-agent aligned with the package version", () => {
+		assert.equal(USER_AGENT, `dsh-web-search-diy/${pkg.version}`);
+	});
+
+	it("defaults the in-protocol shape to DeepSeek's full built-in target", () => {
+		assert.equal(SHAPE_DEFAULT_TARGETS["in-protocol"], "deepseek/anthropic-messages");
+		assert.equal(CATALOG["deepseek/anthropic-messages"].protocol, "anthropic-messages");
+		assert.equal(CATALOG["deepseek/anthropic-messages"].support, "full");
 	});
 
 	it("splits and validates target ids", () => {

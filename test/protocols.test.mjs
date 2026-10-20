@@ -569,4 +569,66 @@ describe("response mapping", () => {
 		assert.deepEqual(mapQwenChatResponse(QWEN_CHAT_BODY), { content: "answer", sources: [], truncated: false });
 		assert.deepEqual(mapChatAnnotationsResponse(ANNOTATIONS_BODY).sources, [{ url: "https://d.example/1", title: "D" }]);
 	});
+
+	it("drops source URLs that are not absolute http(s)", () => {
+		const anthropic = mapAnthropicResponse({
+			content: [{ type: "web_search_tool_result", content: [
+				{ type: "web_search_result", url: "javascript:alert(1)", title: "X" },
+				{ type: "web_search_result", url: "https://ok.example/1", title: "OK" }
+			] }]
+		});
+		assert.deepEqual(anthropic.sources, [{ url: "https://ok.example/1", title: "OK" }]);
+		const zhipu = mapZhipuChatResponse({ choices: [{ message: { content: "answer", web_search: [
+			{ link: "javascript:alert(1)", title: "X" },
+			{ link: "https://ok.example/2", title: "OK" }
+		] } }] });
+		assert.deepEqual(zhipu.sources, [{ url: "https://ok.example/2", title: "OK" }]);
+	});
+});
+
+describe("endpoint and credential resolution", () => {
+	/** Run one body with a temporary DEEPSEEK_SEARCH_BASE_URL value. */
+	async function withSearchBaseURL(value, fn) {
+		const previous = process.env.DEEPSEEK_SEARCH_BASE_URL;
+		process.env.DEEPSEEK_SEARCH_BASE_URL = value;
+		try {
+			return await fn();
+		} finally {
+			if (previous === void 0) delete process.env.DEEPSEEK_SEARCH_BASE_URL;
+			else process.env.DEEPSEEK_SEARCH_BASE_URL = previous;
+		}
+	}
+
+	it("prefers the launch environment over the catalog endpoint", async () => {
+		await withSearchBaseURL("https://gateway.example/anthropic", () => {
+			const options = optionsFor("deepseek/anthropic-messages");
+			assert.equal(options.baseURL, "https://gateway.example/anthropic");
+			assert.equal(options.endpoint, "https://gateway.example/anthropic/v1/messages");
+		});
+	});
+
+	it("keeps an explicitly saved endpoint ahead of the environment", async () => {
+		await withSearchBaseURL("https://gateway.example/anthropic", () => {
+			const options = optionsFor("deepseek/anthropic-messages", { baseURL: "https://file.example/anthropic" });
+			assert.equal(options.baseURL, "https://file.example/anthropic");
+		});
+	});
+
+	it("skips unaddressable credential references instead of throwing", async () => {
+		const options = optionsFor("deepseek/search", { apiKeyEnv: "bad name" });
+		assert.equal(await options.resolveApiKey(), void 0);
+	});
+
+	it("keeps searching when the session cannot record the request", async () => {
+		const session = { append() { throw new Error("session is read-only"); } };
+		const recordingCtx = {
+			get: (name) => name === "credentials"
+				? { resolve: async () => ({ value: "sk-test" }) }
+				: name === "agents" ? { currentInitiator: () => ({ session }) } : void 0
+		};
+		const options = resolveOptions(recordingCtx, { version: 3, targets: {} }, "deepseek/anthropic-messages");
+		const { result, calls } = await runSearch(options, [{ body: ANTHROPIC_BODY }]);
+		assert.equal(calls.length, 1);
+		assert.equal(result.sources.length, 1);
+	});
 });

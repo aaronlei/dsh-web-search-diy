@@ -6,7 +6,7 @@
 import { WebError } from "@deepseek-ai/dsh-web";
 import type { WebSearchRequest, WebSearchResult } from "@deepseek-ai/dsh-web";
 import { hasField, splitList } from "../catalog.ts";
-import { isoPublishedAt, type MutableSource } from "../mappers/sources.ts";
+import { isoPublishedAt, normalizeSourceUrl, type MutableSource } from "../mappers/sources.ts";
 import { DEFAULT_API_VERSION } from "../options.ts";
 import type { SearchOptions } from "../types.ts";
 import { isAbortError, postWithReasoningFallback, searchAborted } from "../transport.ts";
@@ -56,8 +56,8 @@ export function mapAnthropicResponse(data: unknown): WebSearchResult {
 		for (const rawItem of items) {
 			const item = asRecord(rawItem);
 			if (item?.type !== "web_search_result") continue;
-			const url = asString(item.url);
-			if (url === void 0 || url.length === 0 || seen.has(url)) continue;
+			const url = normalizeSourceUrl(item.url);
+			if (url === void 0 || seen.has(url)) continue;
 			seen.add(url);
 			const source: MutableSource = { url };
 			const title = asString(item.title);

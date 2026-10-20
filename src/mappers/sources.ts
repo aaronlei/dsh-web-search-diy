@@ -19,13 +19,22 @@ export interface MutableSource {
  * DeepSeek 用内部调用片段标记它打开过的页面（`…#ws_call_id=call_01_…`）；
  * 去掉它，保证每条来源都是可引用的 URL。
  *
+ * 只接受绝对 `http:` / `https:` URL：来源最终会作为可点击链接交给客户端，
+ * 数据来源不可信时不能把 `javascript:` 一类协议透传下去。
+ *
  * @param value - provider 提供的 URL。
- * @returns 清理后的 URL；没有可用内容时返回 undefined。
+ * @returns 清理后的 URL；没有可用内容或协议不受支持时返回 undefined。
  */
 export function normalizeSourceUrl(value: unknown): string | undefined {
 	if (typeof value !== "string" || value.length === 0) return void 0;
 	const cleaned = value.replace(/#ws_call_id=[^#]*$/u, "");
-	return cleaned.length > 0 ? cleaned : void 0;
+	if (cleaned.length === 0) return void 0;
+	try {
+		const protocol = new URL(cleaned).protocol;
+		return protocol === "http:" || protocol === "https:" ? cleaned : void 0;
+	} catch {
+		return void 0;
+	}
 }
 
 /**
@@ -63,11 +72,11 @@ export function normalizeZhipuSources(entries: readonly unknown[]): MutableSourc
 	const seen = new Set<string>();
 	const sources: MutableSource[] = [];
 	for (const item of entries) {
-		const link = (item as { link?: unknown } | null | undefined)?.link;
-		if (typeof link !== "string" || link.length === 0 || seen.has(link)) continue;
-		seen.add(link);
+		const url = normalizeSourceUrl((item as { link?: unknown } | null | undefined)?.link);
+		if (url === void 0 || seen.has(url)) continue;
+		seen.add(url);
 		const title = (item as { title?: unknown }).title;
-		const source: MutableSource = { url: link };
+		const source: MutableSource = { url };
 		if (typeof title === "string" && title.length > 0) source.title = title;
 		sources.push(source);
 	}

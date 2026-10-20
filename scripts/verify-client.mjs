@@ -21,6 +21,8 @@ import { readFileSync } from "node:fs";
 let hookIndex = 0;
 let hookState = [];
 let pendingEffects = [];
+/** Cleanups returned by effects run during `open()`, so the unmount path is testable. */
+let pendingCleanups = [];
 const fakeReact = {
 	useState: (init) => {
 		const index = hookIndex++;
@@ -55,12 +57,15 @@ globalThis.document = {
 let storedConfig = {};
 /** The last POST body the card sent. */
 let postedBody = null;
+/** The init passed to the most recent snapshot GET, for the abort-signal check. */
+let lastGetInit = null;
 
 globalThis.fetch = async (url, init) => {
 	if (init?.method === "POST") {
 		postedBody = JSON.parse(init.body);
 		return { ok: true, status: 200, json: async () => ({ ok: true }) };
 	}
+	lastGetInit = init ?? null;
 	return { ok: true, status: 200, json: async () => storedConfig };
 };
 
@@ -100,7 +105,7 @@ const ctx = {
 	},
 	slots: {
 		inject(name, fn) {
-			if (name !== "plugins.row.config") throw new Error(`inject waits on wrong slot: ${name}`);
+			if (name !== "plugins.bundle.config") throw new Error(`inject waits on wrong slot: ${name}`);
 			fn();
 		},
 		register(options, component) {
@@ -111,8 +116,9 @@ const ctx = {
 exports.apply(ctx);
 
 console.log(`effects: ${effects.map((effect) => effect.label).join(" | ")}`);
-if (!registered) throw new Error("plugins.row.config entry was not registered");
-if (registered.options.key !== "dsh-web-search-diy#web-search-diy") throw new Error(`wrong key: ${registered.options.key}`);
+if (!registered) throw new Error("plugins.bundle.config entry was not registered");
+if (registered.options.name !== "plugins.bundle.config") throw new Error(`wrong slot: ${registered.options.name}`);
+if (registered.options.key !== "dsh-web-search-diy") throw new Error(`wrong key: ${registered.options.key}`);
 if (dictionaries === null || dictionaries.ns !== "dshWebSearchDiy") throw new Error("locale namespace not registered");
 
 const missing = new Set();
@@ -129,6 +135,18 @@ if (page.$$type !== "jsx" || typeof page.type !== "function") throw new Error("p
 
 // --- catalog fixture ----------------------------------------------------------
 const catalog = [
+	{
+		id: "deepseek/anthropic-messages", kind: "in-protocol", protocol: "anthropic-messages", vendor: "deepseek", support: "full",
+		reason: "", title: "DeepSeek Anthropic 兼容 Messages", docs: "",
+		defaults: { baseURL: "https://api.deepseek.com/anthropic", apiKeyEnv: ["DEEPSEEK_API_KEY"], model: "deepseek-flash", maxOutputTokens: 65536, toolType: "web_search_20250305", maxUses: 5 },
+		fields: ["baseURL", "apiKeyEnv", "model", "maxOutputTokens", "toolType", "maxUses"], hints: {}
+	},
+	{
+		id: "deepseek/search", kind: "standalone", protocol: "search", vendor: "deepseek", support: "full",
+		reason: "", title: "DeepSeek 独立搜索 API", docs: "",
+		defaults: { baseURL: "https://api.deepseek.com", apiKeyEnv: ["DEEPSEEK_API_KEY"], count: 10, includeContent: false, digestEntries: 8, digestSnippetChars: 200 },
+		fields: ["baseURL", "apiKeyEnv", "count", "includeContent", "digestEntries", "digestSnippetChars"], hints: {}
+	},
 	{
 		id: "zhipu/chat-completions", kind: "in-protocol", protocol: "chat-completions", vendor: "zhipu", support: "full",
 		reason: "", title: "智谱问答增强", docs: "",
@@ -195,10 +213,9 @@ const basePayload = {
 	target: {},
 	targets: {},
 	keyConfigured: true,
-	credentials: { zhipu: true, qwen: false, kimi: true, openai: false },
-	catalog,
-	vendors: ["zhipu", "qwen", "kimi"],
-	protocols: ["chat-completions", "responses", "search"]
+	credentials: { zhipu: true, qwen: false, kimi: true, openai: false, deepseek: true },
+	shapeDefaults: { "in-protocol": "deepseek/anthropic-messages", standalone: "deepseek/search" },
+	catalog
 };
 
 // --- render helpers -----------------------------------------------------------
@@ -206,7 +223,10 @@ function render(runEffects) {
 	hookIndex = 0;
 	pendingEffects = [];
 	const tree = page.type({ t });
-	if (runEffects) for (const fn of pendingEffects) fn();
+	if (runEffects) for (const fn of pendingEffects) {
+		const cleanup = fn();
+		if (typeof cleanup === "function") pendingCleanups.push(cleanup);
+	}
 	return tree;
 }
 function fieldsOf(tree) {
@@ -286,6 +306,7 @@ async function open(payload) {
 	storedConfig = payload;
 	postedBody = null;
 	hookState = [];
+	pendingCleanups = [];
 	render(true);
 	await new Promise((resolve) => setTimeout(resolve, 0));
 	const tree = render(false);
@@ -391,9 +412,10 @@ if (standalone.fields.some((props) => props.id.includes("-protocol-"))) throw ne
 const standaloneNotices = noticesOf(standalone.tree);
 if (!standaloneNotices.some((line) => line.includes("无独立纯工具接口"))) throw new Error("standalone should list the OpenRouter Search unsupported entry");
 if (standaloneNotices.some((line) => line.includes("已下线"))) throw new Error("standalone must not list the in-protocol unsupported entry");
-if (!hasField(standalone.fields, "-searchEngine")) throw new Error("standalone zhipu should render searchEngine");
+if (!hasField(standalone.fields, "-includeContent")) throw new Error("standalone should land on deepseek/search and render includeContent");
 if (hasField(standalone.fields, "-model")) throw new Error("standalone must not render model fields");
-console.log("standalone shape switches to zhipu/search and hides model fields");
+expectEqual(valueOf(standalone.fields, "-apiKeyEnv"), "DEEPSEEK_API_KEY", "the standalone default uses the DeepSeek credential");
+console.log("standalone shape switches to deepseek/search and hides model fields");
 
 // --- custom target: the template picker is a one-shot fill action -----------------
 const customCard = choose(standalone, "-vendor", "custom");
@@ -455,6 +477,25 @@ if (resetButton === void 0) throw new Error("a reset button must restore the sav
 resetButton.onClick();
 expectEqual(valueOf(fieldsOf(render(false)), "-baseURL"), "https://saved.example", "reset restores the saved configuration");
 console.log("template overwrite asks for confirmation and a reset restores the saved values");
+
+// --- shape switch round-trip ---------------------------------------------------
+const shapeStart = await open(basePayload);
+const shapeStandalone = choose(shapeStart, "-shape", "standalone");
+if (!hasField(shapeStandalone.fields, "-includeContent")) throw new Error("the standalone default should render includeContent");
+const shapeBack = choose(shapeStandalone, "-shape", "in-protocol");
+if (!hasField(shapeBack.fields, "-toolType")) throw new Error("the in-protocol default should render toolType");
+expectEqual(valueOf(shapeBack.fields, "-apiKeyEnv"), "DEEPSEEK_API_KEY", "the in-protocol default uses the DeepSeek credential");
+expectEqual(valueOf(shapeBack.fields, "-toolType"), "web_search_20250305", "the in-protocol default is DeepSeek Anthropic Messages");
+console.log("shape switch round-trips through DeepSeek's standalone and built-in targets");
+
+// --- unmount cancellation ------------------------------------------------------
+const loadCleanup = pendingCleanups[pendingCleanups.length - 1];
+if (typeof loadCleanup !== "function") throw new Error("the snapshot load effect must return a cleanup");
+if (!(lastGetInit?.signal instanceof AbortSignal)) throw new Error("the snapshot load must pass an abort signal");
+if (lastGetInit.signal.aborted) throw new Error("the snapshot load must not be aborted while mounted");
+loadCleanup();
+if (!lastGetInit.signal.aborted) throw new Error("unmount must abort the in-flight snapshot request");
+console.log("unmount aborts the snapshot load request");
 
 console.log("missing t() keys:", [...missing]);
 if (missing.size > 0) throw new Error("missing locale keys");

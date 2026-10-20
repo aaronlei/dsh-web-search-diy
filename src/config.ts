@@ -5,9 +5,9 @@
  *
  * @module dsh-web-search-diy/config
  */
-import { credentialRef } from "@deepseek-ai/dsh-credentials";
+import { credentialRef, isCredentialRefName } from "@deepseek-ai/dsh-credentials";
 import type { Context } from "@deepseek-ai/cordis";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -45,6 +45,7 @@ export interface ConfigDocument {
 /** 字段值域规格。 */
 type FieldSpec =
 	| { readonly kind: "string" }
+	| { readonly kind: "refName" }
 	| { readonly kind: "positiveInt"; readonly max?: number }
 	| { readonly kind: "boolean" }
 	| { readonly kind: "enum"; readonly values: readonly string[] }
@@ -53,7 +54,8 @@ type FieldSpec =
 /** 所有字段的校验规格（含迁移时投影的键；`template` 已不在任何 target 的 `fields` 中）。 */
 const FIELD_SPECS: Record<FieldKey, FieldSpec> = {
 	baseURL: { kind: "string" },
-	apiKeyEnv: { kind: "string" },
+	/** 引用名要能被凭据服务接受，否则每次搜索都会在 `credentialRef()` 处抛错。 */
+	apiKeyEnv: { kind: "refName" },
 	model: { kind: "string" },
 	maxOutputTokens: { kind: "positiveInt" },
 	toolType: { kind: "string" },
@@ -115,10 +117,13 @@ const FIELD_SPECS: Record<FieldKey, FieldSpec> = {
 /**
  * 配置文件的路径，由 web 配置卡管理：`$DSH_HOME/dsh-web-search-diy.json`。
  *
+ * `DSH_HOME` 显式设为空串时按未设置处理，避免配置落到进程当前目录。
+ *
  * @returns 配置文件绝对路径。
  */
 export function configFilePath(): string {
-	return join(process.env.DSH_HOME ?? join(homedir(), ".dsh"), "dsh-web-search-diy.json");
+	const home = process.env.DSH_HOME?.trim();
+	return join(home !== void 0 && home.length > 0 ? home : join(homedir(), ".dsh"), "dsh-web-search-diy.json");
 }
 
 /** 旧格式文件的一次性备份路径。 */
@@ -136,6 +141,8 @@ function coerceField(spec: FieldSpec, value: unknown): unknown {
 	switch (spec.kind) {
 		case "string":
 			return typeof value === "string" && value.length > 0 ? value : void 0;
+		case "refName":
+			return typeof value === "string" && isCredentialRefName(value) ? value : void 0;
 		case "positiveInt": {
 			/** 表单把数字字段当文本提交，`"131072"` 与 `131072` 同样合法。 */
 			const numeric = typeof value === "number"
@@ -304,8 +311,33 @@ export function saveConfig(vendor: Vendor, protocol: Protocol, partial: Record<s
 	else delete targets[id];
 	const next: ConfigDocument = { version: CONFIG_VERSION, vendor, protocol, targets };
 	mkdirSync(dirname(configFilePath()), { recursive: true });
-	writeFileSync(configFilePath(), JSON.stringify(next, null, 2) + "\n");
+	replaceFileAtomically(configFilePath(), JSON.stringify(next, null, 2) + "\n");
 	return next;
+}
+
+/**
+ * 原子替换配置文件：同目录临时文件 + rename。
+ *
+ * 直接覆盖写会在进程崩溃或磁盘写满时留下被截断的 JSON，下一次读取会退化为空文档，
+ * 随后的保存把原配置覆盖掉。rename 在同一文件系统上是原子的，读取方只会看到旧文件
+ * 或完整的新文件。
+ *
+ * @param path - 目标文件绝对路径。
+ * @param content - 完整的新内容。
+ */
+function replaceFileAtomically(path: string, content: string): void {
+	const temp = `${path}.${process.pid}.tmp`;
+	try {
+		writeFileSync(temp, content, { mode: 0o600 });
+		renameSync(temp, path);
+	} catch (error) {
+		try {
+			unlinkSync(temp);
+		} catch {
+			// Best effort: the rename may already have consumed the temp file.
+		}
+		throw error;
+	}
 }
 
 /** 首次保存前把旧格式文件复制一份；已经备份过就不再覆盖。 */
@@ -370,6 +402,8 @@ function describeSpec(spec: FieldSpec): string {
 	switch (spec.kind) {
 		case "string":
 			return "非空字符串";
+		case "refName":
+			return "凭据引用名（字母或下划线开头，仅字母、数字、下划线）";
 		case "positiveInt":
 			return spec.max !== void 0 ? `1-${spec.max} 的整数` : "正整数";
 		case "boolean":
@@ -407,8 +441,9 @@ export async function hasCredential(ctx: Context, refNames: readonly string[]): 
  *
  * 1. 文档已记录选择且该 target 可选 → 用它。
  * 2. `targets` 非空 → 用第一个已保存的可选 target。
- * 3. 遍历官方 target，优先挑凭据可解析的完整 Responses 组合。
- * 4. 都没有 → {@link DEFAULT_TARGET}。
+ * 3. {@link DEFAULT_TARGET} 的默认凭据可解析 → 用它（DeepSeek 纯工具搜索）。
+ * 4. 遍历官方 target，优先挑凭据可解析的完整 Responses 组合。
+ * 5. 都没有 → {@link DEFAULT_TARGET}。
  *
  * @param ctx - 提供 credentials 服务的插件上下文。
  * @param document - 已读取的配置文档。
@@ -421,6 +456,8 @@ export async function selectDefaultTarget(ctx: Context, document: ConfigDocument
 	}
 	const saved = Object.keys(document.targets).find((id) => isSelectable(id));
 	if (saved !== void 0) return saved as TargetId;
+	/** 首选不消耗模型回合的纯工具搜索：只要有 DeepSeek 凭据就直接落在默认 target 上。 */
+	if (await hasCredential(ctx, CATALOG[DEFAULT_TARGET].defaults.apiKeyEnv)) return DEFAULT_TARGET;
 	const official = OFFICIAL_TARGET_IDS.filter((id) => CATALOG[id].support !== "unsupported");
 	const preferred = [
 		...official.filter((id) => CATALOG[id].protocol === "responses" && CATALOG[id].support === "full"),

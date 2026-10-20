@@ -15,6 +15,10 @@
  * `pnpm run test:client` 随后验证客户端产物契约。
  */
 import { defineConfig } from "tsdown";
+import { readFileSync } from "node:fs";
+
+/** The published package name, used for the client loader handoff. */
+const manifest = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { name: string };
 
 export default defineConfig([
 	// Host: Cordis plugin, ESM for Node.
@@ -49,7 +53,7 @@ export default defineConfig([
 			strict: false,
 			banner: [
 				"window.__ModuleLoader__.load({",
-				`\tid: "dsh-web-search-diy",`,
+				`\tid: ${JSON.stringify(manifest.name)},`,
 				"\tfactory: (require) => {",
 				"\t\tvar module = { exports: {} };",
 				"\t\tvar exports = module.exports;"

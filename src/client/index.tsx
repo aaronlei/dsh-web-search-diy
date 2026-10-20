@@ -1,8 +1,8 @@
 /**
  * dsh-web-search-diy — client 配置卡片（2.0：搜索形态 → 协议 → 厂商）。
  *
- * 注册到侧栏「插件」页本插件行的 `plugins.row.config` 槽位；`summary` 是行下的一句话
- * 简介，`page` 是带保存控件的整页表单。
+ * 注册到侧栏「插件」页本插件卡片的 `plugins.bundle.config` 槽位；点击已安装插件列表
+ * 中的本插件卡片即直接进入配置页，`summary` 是兜底的一句话简介，`page` 是带保存控件的整页表单。
  *
  * 2.0 起 Client 不再硬编码厂商默认值：`GET /api/web-search-diy/config` 下发完整
  * catalog，本文件只负责三层选择、按 `fields` 渲染表单、把草稿按
@@ -12,6 +12,8 @@
  * @module dsh-web-search-diy/client
  */
 import * as react from "react";
+import type { Protocol, Shape } from "../catalog.ts";
+import type { CatalogSnapshotEntry, ConfigSnapshot } from "../contract.ts";
 
 //#region constants
 /** Stable plugin id, stamped into the loader handoff. */
@@ -25,43 +27,14 @@ const CONFIG_URL = "/api/web-search-diy/config";
 //#endregion
 
 //#region types
-/** The four protocols. */
-type Protocol = "chat-completions" | "responses" | "anthropic-messages" | "search";
-/** Search kind: in-protocol (model turn) or standalone (pure tool). */
-type Shape = "in-protocol" | "standalone";
 /** One staged field value. */
 type Primitive = string | boolean;
 /** One target's staged bucket. */
 type TargetDraft = Record<string, Primitive>;
-/** One catalog entry as served by GET /config. */
-interface CatalogEntry {
-	id: string;
-	kind: Shape;
-	protocol: Protocol;
-	vendor: string;
-	support: "full" | "degraded" | "unsupported" | "custom";
-	reason: string;
-	title: string;
-	docs: string;
-	defaults: Record<string, unknown>;
-	fields: string[];
-	modelLocked?: boolean;
-	hints: Record<string, string>;
-	templates?: { id: string; label: string; chatVariant?: string; toolType?: string; defaults: Record<string, unknown> }[];
-}
-/** The GET /config payload. */
-interface Snapshot {
-	version: number;
-	selection: { vendor: string; protocol: Protocol };
-	target: TargetDraft;
-	targets: Record<string, TargetDraft>;
-	keyConfigured: boolean;
-	/** Per-vendor credential state for the selected vendor's badge. */
-	credentials?: Record<string, boolean>;
-	catalog: CatalogEntry[];
-	vendors: string[];
-	protocols: string[];
-}
+/** One catalog entry as served by GET /config; the wire shape lives in `../contract.ts`. */
+type CatalogEntry = CatalogSnapshotEntry;
+/** The GET /config payload; the wire shape lives in `../contract.ts`. */
+type Snapshot = ConfigSnapshot;
 /** Props shared by every input-shaped field. */
 interface ValueFieldProps {
 	id: string;
@@ -205,18 +178,33 @@ const ADVANCED = new Set([
 	"dateField", "contentField", "externalWebAccess", "returnTokenBudget", "searchContentTypes",
 	"imageMaxResults", "imageCaption", "responseInclusion", "xSearch"
 ]);
-/** Credential references per vendor; the picker only lists the current vendor's names. */
-const CREDENTIAL_REFS: Readonly<Record<string, readonly string[]>> = {
-	deepseek: ["DEEPSEEK_API_KEY", "DEEPSEEK_API_SEARCH_KEY"],
-	kimi: ["MOONSHOT_API_KEY", "KIMI_API_KEY", "KIMI_CODING_API_KEY"],
-	zhipu: ["ZAI_CODING_CN_API_KEY", "ZAI_API_KEY", "ZHIPU_API_KEY"],
-	qwen: ["QWEN_TOKEN_PLAN_API_KEY", "QWEN_TOKEN_PLAN_CN_API_KEY", "DASHSCOPE_API_KEY"],
-	openai: ["OPENAI_API_KEY"],
-	anthropic: ["ANTHROPIC_API_KEY"],
-	openrouter: ["OPENROUTER_API_KEY"]
+/** References seen on existing deployments that are not a vendor's default chain. */
+const EXTRA_CREDENTIAL_REFS: Readonly<Record<string, readonly string[]>> = {
+	deepseek: ["DEEPSEEK_API_SEARCH_KEY"],
+	zhipu: ["ZAI_API_KEY"]
 };
-/** Every reference, for the custom vendor (its gateway is unknown). */
-const ALL_CREDENTIAL_REFS: readonly string[] = [...new Set(Object.values(CREDENTIAL_REFS).flat())];
+/** The default credential chain a catalog entry declares. */
+function chainOf(entry: CatalogEntry): string[] {
+	const chain = entry.defaults.apiKeyEnv;
+	return Array.isArray(chain) ? chain.filter((ref): ref is string => typeof ref === "string" && ref.length > 0) : [];
+}
+/** Credential references for one vendor: catalog chains first, then deployment aliases. */
+function credentialRefsFor(catalog: CatalogEntry[], vendor: string): string[] {
+	const refs = new Set<string>();
+	for (const entry of catalog) {
+		if (entry.vendor !== vendor || entry.support === "unsupported") continue;
+		for (const ref of chainOf(entry)) refs.add(ref);
+	}
+	for (const ref of EXTRA_CREDENTIAL_REFS[vendor] ?? []) refs.add(ref);
+	return [...refs];
+}
+/** Every reference the catalog declares plus aliases, for custom gateways. */
+function allCredentialRefs(catalog: CatalogEntry[]): string[] {
+	const refs = new Set<string>();
+	for (const entry of catalog) for (const ref of chainOf(entry)) refs.add(ref);
+	for (const extra of Object.values(EXTRA_CREDENTIAL_REFS)) for (const ref of extra) refs.add(ref);
+	return [...refs];
+}
 /** Protocol display order. */
 const PROTOCOLS: readonly Protocol[] = ["chat-completions", "responses", "anthropic-messages", "search"];
 //#endregion
@@ -927,9 +915,10 @@ function SwitchField(props: SwitchFieldProps) {
 
 //#region helpers
 /** Normalize a stored bucket into staged values. */
-function toDraft(bucket: TargetDraft | undefined): TargetDraft {
+function toDraft(bucket: unknown): TargetDraft {
 	const draft: TargetDraft = {};
-	for (const [key, value] of Object.entries(bucket ?? {})) {
+	if (typeof bucket !== "object" || bucket === null) return draft;
+	for (const [key, value] of Object.entries(bucket)) {
 		draft[key] = typeof value === "boolean" ? value : String(value);
 	}
 	return draft;
@@ -1015,25 +1004,31 @@ function ConfigPage({ t }: { t: (key: string) => string }) {
 	const [apiKey, setApiKey] = react.useState("");
 	const [testing, setTesting] = react.useState(false);
 	const [testResult, setTestResult] = react.useState<{ text: string; warn: boolean } | null>(null);
-	const [shape, setShape] = react.useState<Shape>("in-protocol");
-	const [vendor, setVendor] = react.useState("qwen");
-	const [protocol, setProtocol] = react.useState<Protocol>("responses");
+	/** 加载前占位：与 Host 默认 target（DeepSeek 纯工具搜索）一致，GET 返回后以服务端选择为准。 */
+	const [shape, setShape] = react.useState<Shape>("standalone");
+	const [vendor, setVendor] = react.useState("deepseek");
+	const [protocol, setProtocol] = react.useState<Protocol>("search");
 	const [drafts, setDrafts] = react.useState<Record<string, TargetDraft>>({});
 	const [baseline, setBaseline] = react.useState<Record<string, TargetDraft>>({});
 	/** 模板是一次性填充动作：`lastTemplate` 只用于 placeholder 提示，不进入配置。 */
 	const [lastTemplate, setLastTemplate] = react.useState<string | null>(null);
 	/** 已保存过配置时，切模板先要求确认，避免静默覆盖。 */
 	const [pendingTemplate, setPendingTemplate] = react.useState<{ id: string; label: string } | null>(null);
+	/** Aborts an in-flight snapshot request when the card unmounts or a reload supersedes it. */
+	const loadAbort = react.useRef<AbortController | null>(null);
 
 	/** Load the host snapshot and stage every saved target. */
 	const load = react.useCallback(async () => {
+		loadAbort.current?.abort();
+		const controller = new AbortController();
+		loadAbort.current = controller;
 		try {
-			const response = await fetch(CONFIG_URL, { headers: { accept: "application/json" } });
+			const response = await fetch(CONFIG_URL, { headers: { accept: "application/json" }, signal: controller.signal });
 			if (!response.ok) throw new Error(`HTTP ${response.status}`);
 			const data = await response.json() as Snapshot;
 			const staged: Record<string, TargetDraft> = {};
 			for (const [id, bucket] of Object.entries(data.targets ?? {})) staged[id] = toDraft(bucket);
-			const selection = data.selection ?? { vendor: "qwen", protocol: "responses" as Protocol };
+			const selection = data.selection ?? { vendor: "deepseek", protocol: "search" as Protocol };
 			const entry = (data.catalog ?? []).find((item) => item.vendor === selection.vendor && item.protocol === selection.protocol);
 			/** 已保存选择指向自定义 target 但没有桶时，用首个模板补上草稿，避免模板看起来已选中却全是空值。 */
 			if (entry?.support === "custom" && staged[entry.id] === void 0) {
@@ -1050,12 +1045,16 @@ function ConfigPage({ t }: { t: (key: string) => string }) {
 			setPendingTemplate(null);
 			setFailed(null);
 		} catch {
+			/** An abort is a superseded/unmounted load, not a failure worth showing. */
+			if (controller.signal.aborted) return;
 			setFailed(t("loadFailed"));
 		}
 	}, [t]);
 
 	react.useEffect(() => {
 		void load();
+		/** Drop the in-flight request when the card unmounts; its setState would be pointless. */
+		return () => { loadAbort.current?.abort(); };
 	}, [load]);
 
 	if (snapshot === null) {
@@ -1084,13 +1083,21 @@ function ConfigPage({ t }: { t: (key: string) => string }) {
 		? t("apiKeyByReference")
 		: credentialConfigured ? t("apiKeySet") : t("apiKeyUnset");
 
-	/** Switch shape, keeping the current vendor when it supports the new shape. */
+	/** Switch shape, landing on that shape's default target when the host declares one. */
 	const chooseShape = (next: Shape): void => {
 		setShape(next);
 		setApiKey("");
 		/** 模板提示只针对当前 target；切换后清空，避免 placeholder 误导。 */
 		setLastTemplate(null);
 		setPendingTemplate(null);
+		/** 形态默认落点由 Host 下发：纯工具 → DeepSeek 纯搜索，协议内置 → DeepSeek Anthropic Messages。 */
+		const shapeDefaultId = snapshot.shapeDefaults?.[next];
+		const shapeDefault = catalog.find((item) => item.id === shapeDefaultId && item.support !== "unsupported");
+		if (shapeDefault !== void 0) {
+			setProtocol(shapeDefault.protocol);
+			setVendor(shapeDefault.vendor);
+			return;
+		}
 		const protocols = PROTOCOLS.filter((value) => catalog.some((item) => item.kind === next && item.protocol === value));
 		const keep = protocols.includes(protocol) ? protocol : protocols[0];
 		if (keep === void 0) return;
@@ -1257,8 +1264,11 @@ function ConfigPage({ t }: { t: (key: string) => string }) {
 			/** 只有从未设置过才显示默认；用户清空后保持为空，便于改选或手填。 */
 			const raw = draft[key];
 			const current = raw === void 0 ? defaultText(entry, key) : String(raw);
-			const options = entry?.vendor === "custom" ? ALL_CREDENTIAL_REFS : (CREDENTIAL_REFS[entry?.vendor ?? ""] ?? ALL_CREDENTIAL_REFS);
-			return <ComboField key={key} id={id} label={labelOf(key)} hint={hint} text={current} options={options} onEdit={(next) => { edit(key, next); }} />;
+			/** 候选从 catalog 派生，避免厂商链在这里再维护一份副本；自定义网关列出全部引用。 */
+			const options = entry?.vendor === "custom"
+				? allCredentialRefs(catalog)
+				: credentialRefsFor(catalog, entry?.vendor ?? "");
+			return <ComboField key={key} id={id} label={labelOf(key)} hint={hint} text={current} options={options.length > 0 ? options : allCredentialRefs(catalog)} onEdit={(next) => { edit(key, next); }} />;
 		}
 		if (key === "toolType") {
 			const raw = draft[key];
@@ -1433,11 +1443,12 @@ function ConfigPage({ t }: { t: (key: string) => string }) {
 
 //#region plugin
 /**
- * Register the row's configuration entry on the Plugins page.
+ * Register the bundle's configuration entry on the Plugins page.
  *
- * `plugins.row.config` is keyed by `<package name>#<row id>`:
- * `dsh-web-search-diy#web-search-diy`. `locale: NS` is what hands the component its
- * `t`, so the page follows Settings → Language.
+ * `plugins.bundle.config` is keyed by the package name (`dsh-web-search-diy`),
+ * so clicking this bundle's card in the installed-plugin list opens the form
+ * directly. `locale: NS` is what hands the component its `t`, so the page follows
+ * Settings → Language.
  */
 function apply(ctx: PluginContext): void {
 	ctx.effect(() => {
@@ -1445,12 +1456,12 @@ function apply(ctx: PluginContext): void {
 	}, `${ID}: page stylesheet`);
 	ctx.effect(() => ctx.locale.register(NS, { zh, en }), `${ID}: dictionaries`);
 	ctx.effect(() => {
-		ctx.slots.inject("plugins.row.config", () => ctx.slots.register({
-			name: "plugins.row.config",
-			key: `${ID}#web-search-diy`,
+		ctx.slots.inject("plugins.bundle.config", () => ctx.slots.register({
+			name: "plugins.bundle.config",
+			key: ID,
 			locale: NS
 		}, (props) => props.view === "summary" ? props.t("description") : <ConfigPage t={props.t} />));
-	}, `${ID}: plugins.row.config registration`);
+	}, `${ID}: plugins.bundle.config registration`);
 }
 //#endregion
 

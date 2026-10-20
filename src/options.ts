@@ -5,7 +5,7 @@
  *
  * @module dsh-web-search-diy/options
  */
-import { credentialRef } from "@deepseek-ai/dsh-credentials";
+import { credentialRef, isCredentialRefName } from "@deepseek-ai/dsh-credentials";
 import type { Context } from "@deepseek-ai/cordis";
 import type {} from "@deepseek-ai/dsh-agent";
 import type { Session } from "@deepseek-ai/dsh-session";
@@ -128,11 +128,15 @@ export function resolveOptions(ctx: Context, document: ConfigDocument, targetId:
 		if (value !== void 0 && value !== "") (merged as unknown as Record<string, unknown>)[key] = value;
 	}
 	/**
-	 * Anthropic 端点的环境覆盖仍然生效：DeepSeek 官方搜索 provider 认同一个变量，
-	 * 已有部署的 `DEEPSEEK_SEARCH_BASE_URL` 在切到本插件后继续可用。
+	 * 端点优先级：文件里显式填写 > 启动环境变量 > catalog 默认值。
+	 *
+	 * `merged.baseURL` 已经包含 catalog 默认值，不能再用它判断“用户是否填过”，否则
+	 * `DEEPSEEK_SEARCH_BASE_URL` 这类部署级覆盖会因为默认值非空而永远不生效。
 	 */
-	const ambientBaseURL = capability.protocol === "anthropic-messages" ? launchEnvironmentOf(ctx).get(SEARCH_BASE_URL_ENV)?.value : void 0;
-	const baseURL = (merged.baseURL.length > 0 ? merged.baseURL : ambientBaseURL ?? "").replace(/\/+$/u, "");
+	const fileBaseURL = file.baseURL !== void 0 && file.baseURL.length > 0 ? file.baseURL : void 0;
+	const ambient = capability.protocol === "anthropic-messages" ? launchEnvironmentOf(ctx).get(SEARCH_BASE_URL_ENV)?.value : void 0;
+	const ambientBaseURL = ambient !== void 0 && ambient.trim().length > 0 ? ambient.trim() : void 0;
+	const baseURL = (fileBaseURL ?? ambientBaseURL ?? merged.baseURL).replace(/\/+$/u, "");
 	const path = merged.path.length > 0 ? merged.path : capability.search.path;
 	const endpoint = joinEndpoint(baseURL, path);
 	const apiKeyEnvNames = file.apiKeyEnv !== void 0 && file.apiKeyEnv.length > 0 ? [file.apiKeyEnv] : capability.defaults.apiKeyEnv;
@@ -147,8 +151,9 @@ export function resolveOptions(ctx: Context, document: ConfigDocument, targetId:
 		apiKeyEnv,
 		apiKeyEnvFallbacks,
 		resolveApiKey: async () => {
+			/** 手改配置或旧文件可能带非法引用名：跳过它们，而不是让 credentialRef 抛错中断整条链。 */
+			const refs = [apiKeyEnv, ...apiKeyEnvFallbacks].filter((name) => isCredentialRefName(name));
 			const credentials = ctx.get("credentials");
-			const refs = [apiKeyEnv, ...apiKeyEnvFallbacks].filter((name) => name.length > 0);
 			if (credentials !== void 0) {
 				for (const ref of refs) {
 					const value = (await credentials.resolve(credentialRef(ref)))?.value;
@@ -165,10 +170,14 @@ export function resolveOptions(ctx: Context, document: ConfigDocument, targetId:
 		},
 		/**
 		 * 把出站模型请求记录到调用会话，与已发布 provider 一致。可选链是因为无头组合
-		 * 不挂 agents 服务。
+		 * 不挂 agents 服务；审计是附加项，会话不可写时不能阻断即将发出的搜索。
 		 */
 		recordRequest: (request) => {
-			ctx.get("agents")?.currentInitiator()?.session.append("web/deepseek-search-llm-request", request);
+			try {
+				ctx.get("agents")?.currentInitiator()?.session.append("web/deepseek-search-llm-request", request);
+			} catch {
+				// Best effort: a closed or read-only session must not fail the search.
+			}
 		},
 		/** 只有显式开启时才读取会话，避免每次搜索都触碰 agent 状态。 */
 		originalQuestion: merged.oriQuestion

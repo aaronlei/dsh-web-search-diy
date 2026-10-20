@@ -5,6 +5,72 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.2] - 2026-10-21
+
+### Changed
+
+- **A fresh install now opens on `deepseek/search` (DeepSeek standalone
+  search).** `DEFAULT_TARGET` used to be `qwen/responses`, so a first-time user
+  landed on an in-protocol Responses target and had to switch manually. The
+  first-load picker now prefers the DeepSeek pure-tool target whenever its
+  default credential chain resolves, and still lands there when no credential
+  resolves. Explicitly saved selections keep winning, so existing
+  configurations are untouched; the client's pre-load placeholder mirrors the
+  new default.
+- **Switching the search shape lands on DeepSeek in both directions.** The host
+  now serves `shapeDefaults` (`in-protocol` → `deepseek/anthropic-messages`,
+  `standalone` → `deepseek/search`), and the config page applies it whenever the
+  search-kind radio changes. Previously a shape switch merely kept the current
+  vendor when it happened to exist in the target shape, which could land on an
+  unsupported combination (e.g. DeepSeek Chat Completions) and forced a manual
+  pick.
+- **Clicking the plugin card opens this plugin's settings directly.** The client
+  half now registers on `plugins.bundle.config` (key: the package name) instead
+  of `plugins.row.config`, so the configuration page is the bundle card's page.
+  Before, the form lived one level deeper: users had to open the bundle, find the
+  `web-search-diy` row, and click its Configure control.
+- **Internal maintenance.** The GET `/config` payload is now typed by a shared
+  `contract.ts` used by both halves (type-only, erased from both bundles); the
+  credential picker derives its vendor chains from the catalog instead of a
+  second copy; the loader id in the client banner comes from `package.json`; the
+  client aborts an in-flight snapshot load on unmount; a 2 s cache merges
+  repeated per-vendor credential probes (invalidated on save); and the unused
+  `vendors`/`protocols` response fields were removed.
+
+### Fixed
+
+- **The config routes no longer survive a `webServer` restart.** The routes were
+  registered through an effect on the plugin's own fiber instead of the injected
+  child fiber, so replacing the web server left the old routes registered and
+  added a second copy of each path. They now belong to the `webServer` child and
+  are released before a replacement server registers.
+- **An unaddressable `apiKeyEnv` can no longer crash every search.** The field is
+  validated as a credential reference name (letter/underscore start, then
+  letters, digits, underscores), and credential resolution skips references the
+  service cannot address instead of throwing before trying the fallbacks.
+- **`DEEPSEEK_SEARCH_BASE_URL` now actually overrides the endpoint.** The catalog
+  default was always non-empty, so the environment layer never applied. Priority
+  is now: explicitly saved `baseUrl` > launch environment > catalog default.
+- **Session recording failures no longer abort a search.** `Session.append` can
+  throw (read-only/closed session); the audit record is best-effort and is now
+  contained.
+- **The test-connection endpoint applies the same validation as saving.** A
+  custom target missing `path`/`toolType`, or an invalid Zhipu count, previously
+  reached the network and returned `ok: true`; it now fails locally with 400.
+- **Source URLs are limited to absolute `http(s)`.** `javascript:` and similar
+  schemes returned by a provider are dropped instead of being forwarded as
+  clickable sources.
+- **A blank `DSH_HOME` no longer writes the config into the process cwd.** Empty
+  or whitespace-only values fall back to `~/.dsh`.
+- **The config file is replaced atomically.** A crash during a save can no
+  longer leave truncated JSON that the next read silently treats as empty and
+  the next save overwrites.
+- **Config request bodies are capped at 1 MiB and responses are sent with
+  `Cache-Control: no-store`.**
+- **The `user-agent` now carries the real package version instead of a stale
+  literal**, with a test that ties it to `package.json`; the declared Node engine
+  now matches the APIs actually used (`^22.19.0 || >=24.0.0`).
+
 ## [2.0.1] - 2026-10-18
 
 ### Added

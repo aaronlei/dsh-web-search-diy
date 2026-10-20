@@ -67,12 +67,13 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 
 ### Configuration page
 
-Location: **Plugins → dsh-web-search-diy → the `web-search-diy` row's "Configure"**. Copy follows Settings → Language (zh / en).
+Location: **Plugins → Installed plugins → the dsh-web-search-diy card** (clicking the card opens this plugin's configuration page). Copy follows Settings → Language (zh / en).
 
 - **Search kind**: `In-protocol search` or `Standalone search`. Standalone has no model turn, so model and output-budget fields are hidden.
 - **Protocol**: one of Chat Completions / Responses / Anthropic Messages in-protocol; standalone is fixed to `search`.
 - **Vendor**: only vendors available under that protocol; degraded combinations show their reason on the card; unsupported ones are collapsed for the current shape.
 - **Fields**: blank means the catalog default (shown as the placeholder). Saving a blank deletes the key.
+- **Endpoint override (Anthropic protocol)**: the launching environment variable `DEEPSEEK_SEARCH_BASE_URL` overrides the endpoint; an explicitly saved **Endpoint** wins over it.
 - **Template (custom only)**: a one-shot picker. The selection resets immediately, the placeholder names the last template, and the template itself is never saved. If the target already has a saved configuration, switching templates first asks for confirmation and offers **Reset to saved configuration**.
 - **Save**: switching vendor/protocol counts as a pending change; saving takes effect immediately (the host re-reads the file on every search).
 - **API key**: written through the credentials service only; blank keeps the current key.
@@ -195,6 +196,7 @@ The page's **Test connection** button runs one real search with the **staged dra
 - in-protocol: Responses / Anthropic send `Perform a web search for the query: OpenAI`; Chat sends `OpenAI` directly;
 - standalone: sends `search_query` / `query` / `text_query` plus the matching count;
 - response: `{ ok, sourceCount, sourceQuality, degraded, latencyMs, contentPreview?, error? }`;
+- the save-side required-field checks (for example, a standalone custom target must declare `path`) run first, so a missing value returns 400 without sending a request;
 - with zero sources the message is graded by the combination's expected source quality: by design / may not have run / check the tool name and endpoint.
 
 ## How it works
@@ -262,6 +264,8 @@ If you hit an unsupported vendor or gateway, a protocol difference, or a field-m
 Store keys in the Web **Models** page / credentials service (`$DSH_HOME/.credentials.yaml`) or export them in the launching environment. The plugin resolves them per search, never retains them on the provider, and never writes them to the configuration file.
 
 Default chains per vendor: DeepSeek `DEEPSEEK_API_KEY`; Kimi `MOONSHOT_API_KEY` → `KIMI_API_KEY` → `KIMI_CODING_API_KEY`; Zhipu `ZAI_CODING_CN_API_KEY` → `ZHIPU_API_KEY`; Qwen `QWEN_TOKEN_PLAN_API_KEY` → `QWEN_TOKEN_PLAN_CN_API_KEY` → `DASHSCOPE_API_KEY`; one each for OpenAI / Anthropic / OpenRouter. Custom targets use a user-supplied reference.
+
+A reference name must be a valid environment-variable name (letter/underscore start, then letters, digits, underscores). Saving rejects anything else, and an invalid reference left in a hand-edited file is skipped in favor of the next candidate.
 
 ## Development
 

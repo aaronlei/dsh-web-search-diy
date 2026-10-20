@@ -8,7 +8,8 @@
  */
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import type { Context } from "@deepseek-ai/cordis";
-import { ALL_TARGETS, capabilityOf, isSelectable, PROTOCOLS, VENDORS, type Capability, type TargetId } from "./catalog.ts";
+import { ALL_TARGETS, capabilityOf, DEFAULT_TARGET, isSelectable, SHAPE_DEFAULT_TARGETS, VENDORS, type Capability, type TargetId } from "./catalog.ts";
+import type { CatalogSnapshotEntry, ConfigSnapshot } from "./contract.ts";
 import {
 	buildConfigPatch,
 	CONFIG_VERSION,
@@ -43,21 +44,48 @@ export interface WebServerLike {
 	}): () => void;
 }
 
-/** 读取 JSON 请求体。 */
+/** 配置请求体上限：表单 JSON 远小于此值，超限说明不是本端点该收的请求。 */
+const MAX_JSON_BODY_BYTES = 1024 * 1024;
+
+/** 请求体超过上限；调用方据此返回 413 而不是“不是合法 JSON”。 */
+export class BodyTooLargeError extends Error {
+	readonly status = 413;
+}
+
+/** 读取 JSON 请求体，超过 {@link MAX_JSON_BODY_BYTES} 时拒绝。 */
 export function readJsonBody(req: HttpRequestLike): Promise<unknown> {
 	return new Promise((resolve, reject) => {
 		let raw = "";
+		let bytes = 0;
+		let settled = false;
+		const fail = (error: unknown): void => {
+			if (settled) return;
+			settled = true;
+			reject(error);
+		};
 		req.on("data", (chunk) => {
-			raw += chunk;
+			if (settled) return;
+			/** 表单与 Node 的 HTTP 块都可能是 Buffer；按字节而不是字符数累计。 */
+			const text = typeof chunk === "string" ? chunk : Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+			bytes += Buffer.byteLength(text);
+			if (bytes > MAX_JSON_BODY_BYTES) {
+				fail(new BodyTooLargeError(`request body exceeds ${MAX_JSON_BODY_BYTES} bytes`));
+				return;
+			}
+			raw += text;
 		});
 		req.on("end", () => {
+			if (settled) return;
+			settled = true;
 			try {
 				resolve(raw.length > 0 ? JSON.parse(raw) : {});
 			} catch (error) {
 				reject(error);
 			}
 		});
-		req.on("error", reject);
+		req.on("error", (error) => {
+			fail(error);
+		});
 	});
 }
 
@@ -66,7 +94,9 @@ export function sendJson(res: HttpResponseLike, status: number, body: unknown): 
 	const payload = JSON.stringify(body);
 	res.writeHead(status, {
 		"Content-Type": "application/json; charset=utf-8",
-		"Content-Length": Buffer.byteLength(payload)
+		"Content-Length": Buffer.byteLength(payload),
+		/** 配置与选择每次都从磁盘读取，缓存会让设置页展示过时状态。 */
+		"Cache-Control": "no-store"
 	});
 	res.end(payload);
 }
@@ -76,8 +106,8 @@ interface CredentialsLike {
 	set(ref: ReturnType<typeof credentialRef>, value: string): Promise<void>;
 }
 
-/** 下发给 Client 的 catalog 条目。 */
-export function catalogPayload(): unknown[] {
+/** 下发给 Client 的 catalog 条目；形状由 `contract.ts` 与 Client 共享。 */
+export function catalogPayload(): CatalogSnapshotEntry[] {
 	return Object.values(ALL_TARGETS).map((capability) => ({
 		id: capability.id,
 		kind: capability.protocol === "search" ? "standalone" : "in-protocol",
@@ -87,7 +117,8 @@ export function catalogPayload(): unknown[] {
 		reason: capability.reason ?? "",
 		title: capability.title,
 		docs: capability.docs ?? "",
-		defaults: capability.defaults,
+		/** 展开成普通对象：`TargetDefaults` 是具名类型，不满足索引签名。 */
+		defaults: { ...capability.defaults },
 		fields: capability.fields,
 		modelLocked: capability.modelLocked === true,
 		hints: capability.hints ?? {},
@@ -170,6 +201,16 @@ function validateTargetValues(capability: Capability, merged: Record<string, unk
  * @param webServer - host webserver 服务。
  */
 export function registerConfigEndpoint(ctx: Context, webServer: WebServerLike): () => void {
+	/** 每次打开配置页都会探测全部厂商的凭据链；短 TTL 合并重复的 GET，保存后立即失效。 */
+	const CREDENTIAL_CACHE_MS = 2000;
+	let credentialCache: { at: number; value: Record<string, boolean> } | undefined;
+	const cachedCredentialState = async (): Promise<Record<string, boolean>> => {
+		const now = Date.now();
+		if (credentialCache !== undefined && now - credentialCache.at < CREDENTIAL_CACHE_MS) return credentialCache.value;
+		const value = await credentialState(ctx);
+		credentialCache = { at: now, value };
+		return value;
+	};
 	const disposeConfig = webServer.register({
 		kind: "exact",
 		path: "/api/web-search-diy/config",
@@ -177,11 +218,11 @@ export function registerConfigEndpoint(ctx: Context, webServer: WebServerLike): 
 			if (req.method === "GET") {
 				const document = readConfigDocument();
 				const target = selectedTargetOf(document) ?? await selectDefaultTarget(ctx, document);
-				const capability = capabilityOf(target) ?? ALL_TARGETS["qwen/responses"];
+				const capability = capabilityOf(target) ?? ALL_TARGETS[DEFAULT_TARGET];
 				const bucket = document.targets[target] ?? {};
 				const keyConfigured = await hasCredential(ctx, capability.defaults.apiKeyEnv);
-				const credentials = await credentialState(ctx);
-				return sendJson(res, 200, {
+				const credentials = await cachedCredentialState();
+				const snapshot: ConfigSnapshot = {
 					version: CONFIG_VERSION,
 					selection: { vendor: capability.vendor, protocol: capability.protocol },
 					target: bucket,
@@ -189,16 +230,18 @@ export function registerConfigEndpoint(ctx: Context, webServer: WebServerLike): 
 					keyConfigured,
 					/** 每个厂商的默认链状态：Client 切厂商时据此更新密钥徽标。 */
 					credentials,
-					catalog: catalogPayload(),
-					vendors: VENDORS,
-					protocols: PROTOCOLS
-				});
+					/** 每种搜索形态的默认落点：Client 切换搜索方式时使用。 */
+					shapeDefaults: SHAPE_DEFAULT_TARGETS,
+					catalog: catalogPayload()
+				};
+				return sendJson(res, 200, snapshot);
 			}
 			if (req.method === "POST") {
 				let body: unknown;
 				try {
 					body = await readJsonBody(req);
-				} catch {
+				} catch (error) {
+					if (error instanceof BodyTooLargeError) return sendJson(res, 413, { error: "请求体过大" });
 					return sendJson(res, 400, { error: "请求体不是合法 JSON" });
 				}
 				if (body === null || typeof body !== "object") return sendJson(res, 400, { error: "请求体必须是 JSON 对象" });
@@ -233,6 +276,8 @@ export function registerConfigEndpoint(ctx: Context, webServer: WebServerLike): 
 					}
 				}
 				const saved = saveConfig(capability.vendor, capability.protocol, patch, cleared);
+				/** The save may have written a key or changed apiKeyEnv; the next GET must re-probe. */
+				credentialCache = void 0;
 				const keyConfigured = await hasCredential(ctx, capability.defaults.apiKeyEnv);
 				return sendJson(res, 200, { ok: true, keyConfigured, targets: saved.targets });
 			}
@@ -251,7 +296,8 @@ export function registerConfigEndpoint(ctx: Context, webServer: WebServerLike): 
 			let body: unknown;
 			try {
 				body = await readJsonBody(req);
-			} catch {
+			} catch (error) {
+				if (error instanceof BodyTooLargeError) return sendJson(res, 413, { error: "请求体过大" });
 				return sendJson(res, 400, { error: "请求体不是合法 JSON" });
 			}
 			if (body === null || typeof body !== "object") return sendJson(res, 400, { error: "请求体必须是 JSON 对象" });
@@ -261,10 +307,16 @@ export function registerConfigEndpoint(ctx: Context, webServer: WebServerLike): 
 			const capability = capabilityOf(id);
 			if (capability === void 0) return sendJson(res, 400, { error: `未知的 target: ${id}` });
 			if (capability.support === "unsupported") return sendJson(res, 400, { error: `${id} 不可用：${capability.reason ?? "不支持"}` });
-			const { patch, error } = buildConfigPatch(capability, record);
+			const { patch, cleared, error } = buildConfigPatch(capability, record);
 			if (error !== void 0) return sendJson(res, 400, { error });
 			const saved = readConfigDocument().targets[id] ?? {};
-			const merged = { ...saved, ...patch };
+			const merged: Record<string, unknown> = { ...saved, ...patch };
+			for (const key of cleared) delete merged[key];
+			/** 测试连接走与保存完全相同的校验，避免“保存被拒、测试却发出请求”的错位。 */
+			const customError = validateCustom(capability, merged);
+			if (customError !== void 0) return sendJson(res, 400, { error: customError });
+			const valueError = validateTargetValues(capability, merged);
+			if (valueError !== void 0) return sendJson(res, 400, { error: valueError });
 			const options = resolveOptions(ctx, { version: CONFIG_VERSION, targets: { [id]: merged } }, id as TargetId);
 			const started = Date.now();
 			try {

@@ -67,12 +67,13 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 
 ### 配置页
 
-位置：侧栏 **插件 → dsh-web-search-diy → `web-search-diy` 行的「配置」**。页面跟随 设置 → 语言（zh / en）。
+位置：侧栏 **插件 → 已安装插件 → dsh-web-search-diy 卡片**（点击卡片即进入本插件的配置页）。页面跟随 设置 → 语言（zh / en）。
 
 - **搜索方式**：`协议内置搜索` 与 `纯工具搜索`；纯工具没有模型回合，表单不显示模型与输出上限。
 - **协议**：内置下三选一（Chat Completions / Responses / Anthropic Messages）；纯工具固定 `search`。
 - **厂商**：只列该协议下可用的厂商；降级组合在卡片内标注原因；不支持的组合按当前形态收进折叠区。
 - **字段**：留空即用 catalog 默认值（显示为 placeholder）。清空并保存会删除该键。
+- **端点覆盖（Anthropic 协议）**：启动环境变量 `DEEPSEEK_SEARCH_BASE_URL` 可作为端点覆盖；配置文件里显式填写的「接口地址」优先于它。
 - **模板（仅自定义）**：下拉一次性填充，选完即清空，placeholder 提示刚用过的模板；模板本身不保存。若该 target 已有保存配置，切换模板前会提示「将覆盖当前配置」，并提供「重置为已保存配置」。
 - **保存**：切换厂商/协议本身也算一次待保存变更；保存即生效（Host 每次搜索重新读取文件）。
 - **API 密钥**：只写凭据服务，不落配置文件；留空表示保持当前密钥。
@@ -195,6 +196,7 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 - 协议内置：Responses / Anthropic 发送 `Perform a web search for the query: OpenAI`，Chat 直接发送 `OpenAI`；
 - 纯工具：按模板发送 `search_query` / `query` / `text_query` 与对应条数；
 - 返回 `{ ok, sourceCount, sourceQuality, degraded, latencyMs, contentPreview?, error? }`；
+- 保存侧的自定义必填校验（如纯工具必须有 `path`）同样先行执行，缺项直接返回 400，不会发出请求；
 - 0 来源时按该组合的预期来源质量分档提示：设计上不返回 / 可能未执行 / 应检查工具名与端点。
 
 ## 工作原理
@@ -262,6 +264,8 @@ OpenAI、Anthropic、OpenRouter 尚未实测；有这些端点的实际结果，
 在 Web 的 **Models** 页 / 凭据服务里保存（`$DSH_HOME/.credentials.yaml`），或在启动环境中导出。插件每次搜索动态解析，不在 provider 上保留，也不写入配置文件。
 
 默认引用链按厂商：DeepSeek `DEEPSEEK_API_KEY`；Kimi `MOONSHOT_API_KEY` → `KIMI_API_KEY` → `KIMI_CODING_API_KEY`；智谱 `ZAI_CODING_CN_API_KEY` → `ZHIPU_API_KEY`；千问 `QWEN_TOKEN_PLAN_API_KEY` → `QWEN_TOKEN_PLAN_CN_API_KEY` → `DASHSCOPE_API_KEY`；OpenAI / Anthropic / OpenRouter 各一条。自定义 target 的引用名由用户填写。
+
+引用名必须是合法的环境变量名（字母或下划线开头，仅字母、数字、下划线）；不合法的值保存时会被拒绝，手改文件里的非法引用会被跳过并回退到下一个候选。
 
 ## 开发
 

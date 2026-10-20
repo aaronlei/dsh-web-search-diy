@@ -2,8 +2,8 @@
  * 配置 v3 契约：读写投影、保存过滤、字段校验、v1/v2 迁移与备份。
  */
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, beforeEach, describe, it } from "node:test";
 import {
@@ -158,6 +158,17 @@ describe("buildConfigPatch", () => {
 		assert.match(buildConfigPatch(search, { digestSnippetChars: 0 }).error, /digestSnippetChars/);
 	});
 
+	it("rejects an apiKeyEnv that the credentials service cannot address", () => {
+		const search = capabilityOf("deepseek/search");
+		const accepted = buildConfigPatch(search, { apiKeyEnv: "DEEPSEEK_SEARCH_KEY" });
+		assert.equal(accepted.error, void 0);
+		assert.equal(accepted.patch.apiKeyEnv, "DEEPSEEK_SEARCH_KEY");
+		const rejected = buildConfigPatch(search, { apiKeyEnv: "bad name" });
+		assert.match(rejected.error, /apiKeyEnv/);
+		assert.match(rejected.error, /凭据引用名/u);
+		assert.equal(rejected.patch.apiKeyEnv, void 0);
+	});
+
 	it("accepts a custom gateway's engine name but keeps the official enum", () => {
 		const custom = buildConfigPatch(capabilityOf("custom/search"), { searchEngine: "searxng" });
 		assert.equal(custom.error, void 0);
@@ -260,5 +271,24 @@ describe("v2 migration", () => {
 		const second = saveConfig("qwen", "responses", { toolType: "web_search" });
 		assert.deepEqual(second, first);
 		assert.equal(readRaw().version, CONFIG_VERSION);
+	});
+
+	it("replaces the file atomically without leaving temp files behind", () => {
+		saveConfig("deepseek", "search", { count: 7 });
+		assert.deepEqual(readRaw().targets["deepseek/search"], { count: 7 });
+		const leftovers = readdirSync(home).filter((name) => name.endsWith(".tmp"));
+		assert.deepEqual(leftovers, []);
+	});
+
+	it("falls back to the user home when DSH_HOME is blank", () => {
+		const previous = process.env.DSH_HOME;
+		process.env.DSH_HOME = "   ";
+		try {
+			const expected = join(homedir(), ".dsh", "dsh-web-search-diy.json");
+			assert.equal(configFilePath(), expected);
+		} finally {
+			if (previous === void 0) delete process.env.DSH_HOME;
+			else process.env.DSH_HOME = previous;
+		}
 	});
 });
