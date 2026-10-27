@@ -5,7 +5,6 @@
  */
 
 export const zh: Record<string, string> = {
-	title: "自定义网页搜索",
 	description: "多协议网页搜索：协议内置（Chat Completions / Responses / Anthropic Messages）与纯工具搜索，按厂商选择。",
 	loading: "正在读取配置…",
 	loadFailed: "读取配置失败；请确认插件服务可用后重试。",
@@ -24,7 +23,6 @@ export const zh: Record<string, string> = {
 	full: "完整",
 	degraded: "降级",
 	custom: "自定义",
-	unsupportedNotice: "该组合不可用：",
 	unsupportedVendors: "本版未接入的组合（不代表该厂商整体不可用）",
 	customNotice: "自定义接入需自行确认网关行为；保存后可直接测试。",
 	fillFromTemplate: "从模板填充（仅供参考）",
@@ -224,7 +222,6 @@ export const zh: Record<string, string> = {
 };
 /** English copy. */
 export const en: Record<string, string> = {
-	title: "Custom web search",
 	description: "Multi-protocol web search: in-protocol (Chat Completions / Responses / Anthropic Messages) and standalone search, selected by vendor.",
 	loading: "Reading the configuration…",
 	loadFailed: "The configuration could not be read; retry once the plugin service is available.",
@@ -243,7 +240,6 @@ export const en: Record<string, string> = {
 	full: "Full",
 	degraded: "Degraded",
 	custom: "Custom",
-	unsupportedNotice: "This combination is unavailable: ",
 	unsupportedVendors: "Combinations not wired in this build (the vendor may still work in another protocol)",
 	customNotice: "Custom endpoints are your responsibility; test after saving.",
 	fillFromTemplate: "Prefill from a template (reference only)",

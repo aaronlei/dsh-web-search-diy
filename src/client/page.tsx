@@ -20,6 +20,19 @@ import { defaultText, fillFromTemplate, seedFromTemplate, stagedValue, toDraft, 
 import { PROTOCOLS, protocolLabel, supportLabel, vendorLabel } from "./labels.ts";
 import { ChoiceField, ComboField, SecretField, SelectField, SwitchField, ValueField } from "./fields.tsx";
 
+/** DOM id prefix for every control the card renders. */
+const ID_PREFIX = "plugin-config-web-search-diy-";
+
+/** Target id reduced to a DOM-safe slug. */
+const slugOf = (targetId: string): string => targetId.replace(/[^a-z0-9]+/gu, "-");
+
+/** Staged-draft equality that ignores key order but compares every value. */
+function sameDraft(left: TargetDraft, right: TargetDraft): boolean {
+	const keys = Object.keys(left);
+	if (keys.length !== Object.keys(right).length) return false;
+	return keys.every((key) => right[key] === left[key]);
+}
+
 /** The host's credential-reference grammar; the host re-checks it on save. */
 const REF_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 
@@ -112,7 +125,7 @@ export function ConfigPage({ t }: { t: (key: string) => string }) {
 	}, [load]);
 
 	if (snapshot === null) {
-		return <p className="dwsd-status">{failed === "loadFailed" ? t("loadFailed") : failed ?? t("loading")}</p>;
+		return <p className="dwsd-status">{failed ?? t("loading")}</p>;
 	}
 
 	const catalog = snapshot.catalog;
@@ -121,12 +134,13 @@ export function ConfigPage({ t }: { t: (key: string) => string }) {
 	/** 折叠区只列当前形态下不可用的组合：内置协议与纯工具的原因分开呈现。 */
 	const unsupportedEntries = catalog.filter((entry) => entry.support === "unsupported" && entry.kind === shape);
 	const currentId = `${vendor}/${protocol}`;
+	const currentSlug = slugOf(currentId);
 	const entry = catalog.find((item) => item.id === currentId);
 	const savedDraft = baseline[currentId] ?? {};
 	const draft = drafts[currentId] ?? savedDraft;
 	/** 选择本身也是待保存状态：切换厂商/协议后即使字段没改，也要能保存这次选择。 */
 	const selectionChanged = vendor !== snapshot.selection.vendor || protocol !== snapshot.selection.protocol;
-	const dirty = selectionChanged || JSON.stringify(draft) !== JSON.stringify(savedDraft) || apiKey.length > 0;
+	const dirty = selectionChanged || !sameDraft(draft, savedDraft) || apiKey.length > 0;
 	/**
 	 * 密钥徽标跟随所选厂商：GET 一次探测每个厂商的默认链；`custom` 的引用名由
 	 * 用户填写，无法预判，改为提示它取决于引用名。
@@ -206,12 +220,18 @@ export function ConfigPage({ t }: { t: (key: string) => string }) {
 		setFailed(null);
 	};
 
+	/** The staged draft as the host expects it: blank values cleared, numbers by spec. */
+	const stagedPayload = (): Record<string, unknown> => {
+		const payload: Record<string, unknown> = { vendor, protocol };
+		for (const [key, value] of Object.entries(draft)) payload[key] = wireValue(entry?.specs?.[key], value);
+		return payload;
+	};
+
 	/** Run one minimal search with the staged draft; nothing is persisted. */
 	const test = async (): Promise<void> => {
 		setTesting(true);
 		setTestResult(null);
-		const payload: Record<string, unknown> = { vendor, protocol };
-		for (const [key, value] of Object.entries(draft)) payload[key] = wireValue(entry?.specs?.[key], value);
+		const payload = stagedPayload();
 		try {
 			const response = await fetch(TEST_URL, {
 				method: "POST",
@@ -245,9 +265,7 @@ export function ConfigPage({ t }: { t: (key: string) => string }) {
 	const save = async (): Promise<void> => {
 		setSaving(true);
 		setFailed(null);
-		const payload: Record<string, unknown> = { vendor, protocol };
-		/** Send every staged key: a blank value is the host's "clear this key" signal. */
-		for (const [key, value] of Object.entries(draft)) payload[key] = wireValue(entry?.specs?.[key], value);
+		const payload = stagedPayload();
 		if (apiKey.length > 0) payload.apiKey = apiKey;
 		try {
 			const response = await fetch(CONFIG_URL, {
@@ -330,7 +348,7 @@ export function ConfigPage({ t }: { t: (key: string) => string }) {
 		const baseHint = entry?.hints[key] ?? (translatedHint === `hint_${key}` ? t("fieldPlaceholder") : translatedHint);
 		const hint = key === "model" && entry?.modelLocked === true ? t("modelLockedHint") : baseHint;
 		const placeholder = defaultText(entry, key);
-		const id = `plugin-config-web-search-diy-${currentId.replace(/[^a-z0-9]+/gu, "-")}-${key}`;
+		const id = `${ID_PREFIX}${currentSlug}-${key}`;
 		const invalid = invalidOf(key);
 		const invalidLabel = invalidLabelOf(spec);
 		if (key === "apiKeyEnv") {
@@ -402,7 +420,7 @@ export function ConfigPage({ t }: { t: (key: string) => string }) {
 				<div className="dwsd-choices" role="radiogroup" aria-label={t("shape")}>
 					{(["in-protocol", "standalone"] as const).map((value) => (
 						<label className="dwsd-choice" key={value}>
-							<input id={`plugin-config-web-search-diy-shape-${value}`} type="radio" name="plugin-config-web-search-diy-shape" value={value} checked={shape === value} onChange={() => { chooseShape(value); }} />
+							<input id={`${ID_PREFIX}shape-${value}`} type="radio" name={`${ID_PREFIX}shape`} value={value} checked={shape === value} onChange={() => { chooseShape(value); }} />
 							<span className="dwsd-choiceLabel">{value === "in-protocol" ? t("shapeInProtocol") : t("shapeStandalone")}</span>
 						</label>
 					))}
@@ -416,7 +434,7 @@ export function ConfigPage({ t }: { t: (key: string) => string }) {
 				<div className="dwsd-choices" role="radiogroup" aria-label={t("protocol")}>
 					{shapeProtocols.map((value) => (
 						<label className="dwsd-choice" key={value}>
-							<input id={`plugin-config-web-search-diy-protocol-${value}`} type="radio" name="plugin-config-web-search-diy-protocol" value={value} checked={protocol === value} onChange={() => { chooseProtocol(value); }} />
+							<input id={`${ID_PREFIX}protocol-${value}`} type="radio" name={`${ID_PREFIX}protocol`} value={value} checked={protocol === value} onChange={() => { chooseProtocol(value); }} />
 							<span className="dwsd-choiceLabel">{protocolLabel(t, value)}</span>
 						</label>
 					))}
@@ -430,9 +448,9 @@ export function ConfigPage({ t }: { t: (key: string) => string }) {
 					{vendorEntries.map((item) => (
 						<label className="dwsd-choice" key={item.id}>
 							<input
-								id={`plugin-config-web-search-diy-vendor-${item.vendor}`}
+								id={`${ID_PREFIX}vendor-${item.vendor}`}
 								type="radio"
-								name="plugin-config-web-search-diy-vendor"
+								name={`${ID_PREFIX}vendor`}
 								value={item.vendor}
 								checked={vendor === item.vendor}
 								onChange={() => {
@@ -465,7 +483,7 @@ export function ConfigPage({ t }: { t: (key: string) => string }) {
 			{entry?.templates !== void 0 ? (
 				<div className="dwsd-field">
 					<SelectField
-						id={`plugin-config-web-search-diy-${currentId.replace(/[^a-z0-9]+/gu, "-")}-template`}
+						id={`${ID_PREFIX}${currentSlug}-template`}
 						label={t("fillFromTemplate")}
 						hint={t("templateFillHint")}
 						value=""
@@ -491,7 +509,7 @@ export function ConfigPage({ t }: { t: (key: string) => string }) {
 				</details>
 			) : null}
 			<SecretField
-				id="plugin-config-web-search-diy-api-key"
+				id={`${ID_PREFIX}api-key`}
 				label={t("apiKey")}
 				hint={t("apiKeyHint")}
 				text={apiKey}

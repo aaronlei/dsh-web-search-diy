@@ -44,7 +44,7 @@ export interface CatalogSnapshotEntry {
 export interface ConfigSnapshot {
 	version: number;
 	selection: { vendor: string; protocol: Protocol };
-	/** 当前 target 已保存的桶；Client 目前不直接使用。 */
+	/** 当前 target 已保存的桶；供调试与外部消费者，Client 用 `targets`。 */
 	target: unknown;
 	targets: Record<string, unknown>;
 	keyConfigured: boolean;
