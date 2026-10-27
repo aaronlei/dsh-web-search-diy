@@ -10,7 +10,7 @@ import { WebError } from "@deepseek-ai/dsh-web";
 import { gunzipSync, inflateSync } from "node:zlib";
 
 /** 每个请求都带上的归属头；`test/catalog.test.mjs` 断言它与 package.json 版本一致。 */
-export const USER_AGENT = "dsh-web-search-diy/2.0.2";
+export const USER_AGENT = "dsh-web-search-diy/2.0.3";
 
 /** gzip 成员魔数（RFC 1952）与 zlib 的默认 CMF 字节（RFC 1950）。 */
 const GZIP_MAGIC_FIRST = 0x1f;

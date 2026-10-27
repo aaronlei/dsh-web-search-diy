@@ -5,6 +5,46 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.3] - 2026-10-28
+
+### Added
+
+- **Field constraints now travel with the catalog and are enforced while
+  editing.** Every catalog entry carries `specs` (host-projected from
+  `fieldSpecOf`, including the per-target exceptions: Kimi's `count` cap of 20
+  and the custom-gateway `searchEngine` that accepts any name). The client
+  derives each control and its validation from those specs instead of three
+  hand-maintained copies (enum ranges, boolean set, numeric set). Positive
+  integers are checked against their maximum (`count` 50, Kimi 20,
+  `digestEntries` 20, `digestSnippetChars` 2000), `apiKeyEnv` against the
+  credential-reference grammar, and `json` fields against an object shape. A
+  staged value the host would reject is flagged immediately and blocks Save, so
+  a malformed value no longer reaches the server only to come back as a 400.
+
+### Changed
+
+- **A rejected save keeps the staged draft** and shows the host's error in the
+  footer; before, the failing value stayed in the form without explanation.
+- **The client half is split into focused modules** (`consts`, `types`,
+  `field-meta`, `draft`, `fields`, `page`, `styles`, `locale`). The loader
+  handoff is unchanged: `src/client/index.tsx` is still the only entry and the
+  build still emits a single `lib/client.js` whose id is the package name.
+
+### Fixed
+
+- **Dirty detection no longer depends on key order.** The form used to compare
+  `JSON.stringify(draft)` with `JSON.stringify(savedDraft)`, so an equivalent
+  draft with a different key order looked dirty; it now compares keys and values
+  explicitly.
+- **The locale test double mirrors the real service.** A missing key resolves to
+  the key itself (never a synthetic `<missing:...>` marker), both dictionaries
+  must define the same keys, and the two branches that only the stub could reach
+  are gone.
+
+### Internal
+
+- README development section now reports the actual host test count (118).
+
 ## [2.0.2] - 2026-10-21
 
 ### Changed
