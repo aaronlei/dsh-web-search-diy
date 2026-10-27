@@ -281,7 +281,8 @@ export function ConfigPage({ t }: { t: (key: string) => string }) {
 	const renderField = (key: string): JSX.Element => {
 		const value = stagedValue(draft, entry, key);
 		const translatedHint = t(`hint_${key}`);
-		const baseHint = entry?.hints[key] ?? (translatedHint.startsWith("hint_") || translatedHint.startsWith("<missing") ? t("fieldPlaceholder") : translatedHint);
+		/** The locale service returns an untranslated key verbatim, so equality means "no hint". */
+		const baseHint = entry?.hints[key] ?? (translatedHint === `hint_${key}` ? t("fieldPlaceholder") : translatedHint);
 		const hint = key === "model" && entry?.modelLocked === true ? t("modelLockedHint") : baseHint;
 		const placeholder = defaultText(entry, key);
 		const id = `plugin-config-web-search-diy-${currentId.replace(/[^a-z0-9]+/gu, "-")}-${key}`;
@@ -313,7 +314,7 @@ export function ConfigPage({ t }: { t: (key: string) => string }) {
 			const options = ENUMS[key].map((option) => {
 				const labelKey = `opt_${key}_${option === "" ? "empty" : option}`;
 				const label = t(labelKey);
-				return { value: option, label: label === labelKey || label.startsWith("<missing") ? (option.length > 0 ? option : "—") : label };
+				return { value: option, label: label === labelKey ? (option.length > 0 ? option : "—") : label };
 			});
 			const current = String(value) === "" ? defaultText(entry, key) : String(value);
 			return <ChoiceField key={key} id={id} label={labelOf(key)} hint={hint} value={current} options={options} onEdit={(next) => { edit(key, next); }} />;

@@ -122,14 +122,26 @@ if (registered.options.key !== "dsh-web-search-diy") throw new Error(`wrong key:
 if (dictionaries === null || dictionaries.ns !== "dshWebSearchDiy") throw new Error("locale namespace not registered");
 
 const missing = new Set();
+/**
+ * Mirrors the real locale service: a key defined by neither language is returned
+ * verbatim (`lookup(...) ?? key`), never a synthetic marker. The set below is the
+ * test's own completeness check, not part of the contract.
+ */
 const t = (key) => {
 	const value = dictionaries.dicts.zh[key] ?? dictionaries.dicts.en[key];
 	if (value === void 0) missing.add(key);
-	return value ?? `<missing:${key}>`;
+	return value ?? key;
 };
 
+/** Both languages must define the same keys: a gap would silently fall back to the other one. */
+const zhKeys = Object.keys(dictionaries.dicts.zh).sort();
+const enKeys = Object.keys(dictionaries.dicts.en).sort();
+if (zhKeys.join("\n") !== enKeys.join("\n")) {
+	throw new Error(`dictionaries disagree: zh ${zhKeys.length} keys, en ${enKeys.length}`);
+}
+
 const summary = registered.component({ t, view: "summary" });
-if (typeof summary !== "string" || summary.length === 0 || summary.startsWith("<missing")) throw new Error("bad summary");
+if (typeof summary !== "string" || summary.length === 0 || summary === "description") throw new Error("bad summary");
 const page = registered.component({ t, view: "page" });
 if (page.$$type !== "jsx" || typeof page.type !== "function") throw new Error("page view is not the form component");
 
