@@ -59,10 +59,15 @@ let storedConfig = {};
 let postedBody = null;
 /** The init passed to the most recent snapshot GET, for the abort-signal check. */
 let lastGetInit = null;
+/** When set, the next POST is rejected with this error instead of succeeding. */
+let postFailure = null;
 
 globalThis.fetch = async (url, init) => {
 	if (init?.method === "POST") {
 		postedBody = JSON.parse(init.body);
+		if (postFailure !== null) {
+			return { ok: false, status: postFailure.status, json: async () => ({ error: postFailure.error }) };
+		}
 		return { ok: true, status: 200, json: async () => ({ ok: true }) };
 	}
 	lastGetInit = init ?? null;
@@ -356,6 +361,20 @@ function noticesOf(tree) {
 	return found;
 }
 
+/** The footer error line after a rejected save or a failed load. */
+function failedTextOf(tree) {
+	const found = [];
+	const walk = (node) => {
+		if (node == null || typeof node !== "object") return;
+		if (Array.isArray(node)) { for (const child of node) walk(child); return; }
+		const className = node.props?.className;
+		if (typeof className === "string" && className.includes("dwsd-failed")) found.push(textOf(node.props.children));
+		if (node.props?.children !== void 0) walk(node.props.children);
+	};
+	walk(tree);
+	return found.join(" ");
+}
+
 /** Load one GET payload, run its mount effect, and return the rendered card. */
 async function open(payload) {
 	storedConfig = payload;
@@ -565,6 +584,22 @@ refInput.onEdit("BAD-NAME");
 specTree = render(false);
 expectEqual(fieldsOf(specTree).find((props) => props.id.endsWith("-apiKeyEnv"))?.invalid, true, "a malformed reference is flagged");
 console.log("spec-driven validation marks out-of-range numbers and malformed references");
+
+// --- rejected save shows the host error ----------------------------------------
+const failStart = await open(basePayload);
+const baseURLInput = failStart.fields.find((props) => props.id.endsWith("-baseURL"));
+if (baseURLInput === void 0) throw new Error("the fixture should render baseURL");
+baseURLInput.onEdit("https://gw.example/v1");
+render(false);
+postFailure = { status: 400, error: "baseURL 的值不合法（非空字符串）" };
+saveButtonOf(render(false)).onClick();
+await new Promise((resolve) => setTimeout(resolve, 0));
+const failedTree = render(false);
+expectEqual(failedTextOf(failedTree), "baseURL 的值不合法（非空字符串）", "the host error reaches the footer");
+expectEqual(fieldsOf(failedTree).find((props) => props.id.endsWith("-baseURL"))?.text, "https://gw.example/v1", "a rejected save keeps the staged draft");
+expectEqual(saveButtonOf(failedTree)?.disabled, false, "a rejected save leaves the form saveable");
+postFailure = null;
+console.log("a rejected save surfaces the host error and keeps the draft");
 
 // --- unmount cancellation ------------------------------------------------------
 const loadCleanup = pendingCleanups[pendingCleanups.length - 1];
