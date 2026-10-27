@@ -282,7 +282,17 @@ src/
   transport.ts    # fetch、解码、reasoning 降级
   protocols/      # responses / anthropic / chat / search
   mappers/        # 来源归一化
-  client/index.tsx
+  client/         # 浏览器侧，构建为单个 lib/client.js
+    index.tsx     # apply：卡片注册、样式与词典
+    page.tsx      # 配置页：形态 → 协议 → 厂商、字段表单、测试/保存
+    fields.tsx    # 字段控件
+    field-meta.ts # 枚举/布尔/数字集合、Chat 变体、高级区
+    draft.ts      # 草稿归一化、模板填充、数值转换
+    labels.ts     # 协议/厂商/支持度文案
+    styles.ts     # 卡片样式
+    locale.ts     # 中英文案
+    consts.ts     # loader id 与端点
+    types.ts      # 草稿与字段 props 类型
 ```
 
 ```bash

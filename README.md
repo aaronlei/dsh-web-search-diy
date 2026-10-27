@@ -282,7 +282,17 @@ src/
   transport.ts    # fetch, decoding, reasoning fallback
   protocols/      # responses / anthropic / chat / search
   mappers/        # source normalization
-  client/index.tsx
+  client/         # browser half, bundled into one lib/client.js
+    index.tsx     # apply: card registration, stylesheet and dictionaries
+    page.tsx      # config page: shape → protocol → vendor, field form, test/save
+    fields.tsx    # field controls
+    field-meta.ts # enum/boolean/numeric sets, chat variants, advanced section
+    draft.ts      # draft normalization, template fill, number coercion
+    labels.ts     # protocol/vendor/support copy
+    styles.ts     # card stylesheet
+    locale.ts     # zh/en dictionaries
+    consts.ts     # loader id and endpoints
+    types.ts      # draft and field-prop types
 ```
 
 ```bash
