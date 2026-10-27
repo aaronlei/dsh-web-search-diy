@@ -9,6 +9,18 @@
  */
 import type { Protocol, Shape, Support, Template } from "./catalog.ts";
 
+/**
+ * 一个字段的校验规格。Host 用它校验保存，Client 用它选控件与即时校验；
+ * 两侧共用这一份形状，字段值域不再各写一份。
+ */
+export type FieldSpecWire =
+	| { readonly kind: "string" }
+	| { readonly kind: "refName" }
+	| { readonly kind: "positiveInt"; readonly max?: number }
+	| { readonly kind: "boolean" }
+	| { readonly kind: "enum"; readonly values: readonly string[] }
+	| { readonly kind: "json" };
+
 /** 一个 catalog 条目在配置端点上的形状。 */
 export interface CatalogSnapshotEntry {
 	id: string;
@@ -21,6 +33,8 @@ export interface CatalogSnapshotEntry {
 	docs: string;
 	defaults: Record<string, unknown>;
 	fields: readonly string[];
+	/** 该条目每个声明字段的校验规格，与 `fields` 一一对应。 */
+	specs: Readonly<Record<string, FieldSpecWire>>;
 	modelLocked?: boolean;
 	hints: Record<string, string>;
 	templates?: readonly Template[];

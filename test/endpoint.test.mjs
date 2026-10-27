@@ -187,6 +187,19 @@ describe("GET /api/web-search-diy/config", () => {
 		await call("GET");
 		assert.equal(openaiProbes(), 2, "saving invalidates the cached probe");
 	});
+
+	it("projects each entry's field specs alongside its fields", async () => {
+		const { body } = await get();
+		const zhipu = body.catalog.find((entry) => entry.id === "zhipu/chat-completions");
+		assert.deepEqual(Object.keys(zhipu.specs).sort(), [...zhipu.fields].sort(), "specs cover exactly the declared fields");
+		assert.deepEqual(zhipu.specs.count, { kind: "positiveInt", max: 50 });
+		assert.deepEqual(zhipu.specs.apiKeyEnv, { kind: "refName" }, "a credential reference keeps its grammar on the wire");
+		assert.deepEqual(zhipu.specs.searchEngine, { kind: "enum", values: ["search_std", "search_pro", "search_pro_sogou", "search_pro_quark"] });
+		const kimi = body.catalog.find((entry) => entry.id === "kimi/search");
+		assert.deepEqual(kimi.specs.count, { kind: "positiveInt", max: 20 }, "Kimi's cap is a per-target exception");
+		const custom = body.catalog.find((entry) => entry.id === "custom/search");
+		assert.deepEqual(custom.specs.searchEngine, { kind: "string" }, "a custom gateway accepts any engine name");
+	});
 });
 
 describe("POST /api/web-search-diy/config", () => {

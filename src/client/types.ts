@@ -53,6 +53,8 @@ export interface ComboFieldProps {
 	text: string;
 	options: readonly string[];
 	placeholder?: string;
+	invalid?: boolean;
+	invalidLabel?: string;
 	onEdit: (text: string) => void;
 }
 /** Props of the boolean switch field. */

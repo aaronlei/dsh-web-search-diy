@@ -2,15 +2,15 @@
  * Draft model: normalize a stored bucket, fill from a template, resolve the
  * placeholder/current value of one field, and coerce numbers for the wire.
  */
+import type { FieldSpecWire } from "../contract.ts";
 import type { CatalogEntry, Primitive, TargetDraft } from "./types.ts";
-import { BOOLEANS, NUMBERS } from "./field-meta.ts";
 
 /**
  * Numeric fields must reach the host as JSON numbers; a blank entry stays blank so
  * the host sees the "clear this key" signal instead of storing 0.
  */
-export const wireValue = (key: string, value: Primitive): Primitive | number =>
-	NUMBERS.has(key) && typeof value === "string" && /^\d+$/u.test(value.trim()) ? Number(value.trim()) : value;
+export const wireValue = (spec: FieldSpecWire | undefined, value: Primitive): Primitive | number =>
+	spec?.kind === "positiveInt" && typeof value === "string" && /^\d+$/u.test(value.trim()) ? Number(value.trim()) : value;
 
 /** Normalize a stored bucket into staged values. */
 export function toDraft(bucket: unknown): TargetDraft {
@@ -68,6 +68,6 @@ export function defaultText(entry: CatalogEntry | undefined, key: string): strin
 export function stagedValue(draft: TargetDraft, entry: CatalogEntry | undefined, key: string): Primitive {
 	const value = draft[key];
 	if (value !== void 0) return value;
-	if (BOOLEANS.has(key)) return entry?.defaults[key] === true;
+	if (entry?.specs?.[key]?.kind === "boolean") return entry?.defaults[key] === true;
 	return "";
 }

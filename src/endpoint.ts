@@ -16,7 +16,8 @@ import {
 	hasCredential,
 	readConfigDocument,
 	saveConfig,
-	selectDefaultTarget
+	selectDefaultTarget,
+	specsOf
 } from "./config.ts";
 import { resolveOptions, selectedTargetOf } from "./options.ts";
 import { DiySearchProvider } from "./provider.ts";
@@ -120,6 +121,8 @@ export function catalogPayload(): CatalogSnapshotEntry[] {
 		/** 展开成普通对象：`TargetDefaults` 是具名类型，不满足索引签名。 */
 		defaults: { ...capability.defaults },
 		fields: capability.fields,
+		/** 字段值域随 catalog 下发：Client 的控件与即时校验都从这里派生。 */
+		specs: specsOf(capability),
 		modelLocked: capability.modelLocked === true,
 		hints: capability.hints ?? {},
 		...(capability.templates !== void 0 ? { templates: capability.templates } : {})

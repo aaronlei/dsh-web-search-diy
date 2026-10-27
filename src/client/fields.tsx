@@ -78,8 +78,9 @@ export function ComboField(props: ComboFieldProps) {
 			<div className="dwsd-combo">
 				<input
 					id={props.id}
-					className="dwsd-input"
+					className={props.invalid === true ? "dwsd-input dwsd-inputInvalid" : "dwsd-input"}
 					type="text"
+					{...(props.invalid === true ? { "aria-invalid": true } : {})}
 					value={props.text}
 					placeholder={props.placeholder ?? ""}
 					spellCheck={false}
@@ -132,7 +133,7 @@ export function ComboField(props: ComboFieldProps) {
 					</ul>
 				) : null}
 			</div>
-			<p className="dwsd-hint">{props.hint}</p>
+			<p className={props.invalid === true ? "dwsd-invalid" : "dwsd-hint"}>{props.invalid === true ? props.invalidLabel : props.hint}</p>
 		</div>
 	);
 }

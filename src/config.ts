@@ -27,6 +27,7 @@ import {
 	type TargetOptions,
 	type Vendor
 } from "./catalog.ts";
+import type { FieldSpecWire } from "./contract.ts";
 
 /** On-disk configuration version: 3 targets keyed by `<vendor>/<protocol>`. */
 export const CONFIG_VERSION = 3;
@@ -42,14 +43,8 @@ export interface ConfigDocument {
 	targets: Record<string, TargetOptions>;
 }
 
-/** 字段值域规格。 */
-type FieldSpec =
-	| { readonly kind: "string" }
-	| { readonly kind: "refName" }
-	| { readonly kind: "positiveInt"; readonly max?: number }
-	| { readonly kind: "boolean" }
-	| { readonly kind: "enum"; readonly values: readonly string[] }
-	| { readonly kind: "json" };
+/** 字段值域规格；形状与下发给 Client 的 `FieldSpecWire` 共用。 */
+type FieldSpec = FieldSpecWire;
 
 /** 所有字段的校验规格（含迁移时投影的键；`template` 已不在任何 target 的 `fields` 中）。 */
 const FIELD_SPECS: Record<FieldKey, FieldSpec> = {
@@ -182,6 +177,20 @@ function fieldSpecOf(capability: Capability, key: FieldKey): FieldSpec {
 	/** Kimi 的独立搜索接口 limit 上限是 20；其余纯工具接口的 count 上限为 50。 */
 	if (capability.id === "kimi/search" && key === "count") return { kind: "positiveInt", max: 20 };
 	return FIELD_SPECS[key];
+}
+
+/**
+ * 该 target 每个声明字段的校验规格，随 catalog 下发给 Client。
+ *
+ * 只投影 `fields` 内的键：Client 不渲染、也不保存其他键。
+ *
+ * @param capability - 目标能力。
+ * @returns 字段名到规格的映射。
+ */
+export function specsOf(capability: Capability): Record<string, FieldSpec> {
+	const specs: Record<string, FieldSpec> = {};
+	for (const key of capability.fields) specs[key] = fieldSpecOf(capability, key);
+	return specs;
 }
 
 /**

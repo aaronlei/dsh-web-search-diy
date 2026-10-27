@@ -219,6 +219,49 @@ const catalog = [
 		reason: "无独立纯工具接口", title: "OpenRouter Search", docs: "", defaults: { baseURL: "", apiKeyEnv: [] }, fields: [], hints: {}
 	}
 ];
+
+/**
+ * Field specs as the host projects them. Only the kinds these cases exercise are
+ * listed; everything else is a plain string, matching a real catalog entry.
+ */
+const SPECS = {
+	count: { kind: "positiveInt", max: 50 },
+	maxOutputTokens: { kind: "positiveInt" },
+	maxUses: { kind: "positiveInt" },
+	maxResults: { kind: "positiveInt" },
+	maxTotalResults: { kind: "positiveInt" },
+	maxCharacters: { kind: "positiveInt" },
+	timeoutSeconds: { kind: "positiveInt" },
+	digestEntries: { kind: "positiveInt", max: 20 },
+	digestSnippetChars: { kind: "positiveInt", max: 2000 },
+	includeSources: { kind: "boolean" },
+	includeContent: { kind: "boolean" },
+	requireSearch: { kind: "boolean" },
+	searchIntent: { kind: "boolean" },
+	forcedSearch: { kind: "boolean" },
+	oriQuestion: { kind: "boolean" },
+	imageCaption: { kind: "boolean" },
+	apiKeyEnv: { kind: "refName" },
+	toolType: { kind: "string" },
+	searchEngine: { kind: "enum", values: ["search_std", "search_pro", "search_pro_sogou", "search_pro_quark"] },
+	thinking: { kind: "enum", values: ["default", "disabled"] },
+	effort: { kind: "enum", values: ["", "low", "medium", "high", "xhigh", "max"] },
+	searchContextSize: { kind: "enum", values: ["low", "medium", "high"] },
+	searchRecencyFilter: { kind: "enum", values: ["noLimit", "oneDay", "oneWeek", "oneMonth", "oneYear"] },
+	contentSize: { kind: "enum", values: ["medium", "high"] },
+	searchStrategy: { kind: "enum", values: ["turbo", "max", "agent", "agent_max"] },
+	freshness: { kind: "enum", values: ["", "noLimit", "oneDay", "oneWeek", "oneMonth", "oneYear"] },
+	externalWebAccess: { kind: "enum", values: ["", "true", "false"] },
+	returnTokenBudget: { kind: "enum", values: ["", "default", "unlimited"] },
+	responseInclusion: { kind: "enum", values: ["", "full", "excluded"] },
+	xSearch: { kind: "json" }
+};
+for (const entry of catalog) {
+	entry.specs = Object.fromEntries(entry.fields.map((key) => [
+		key,
+		entry.vendor === "custom" && key === "searchEngine" ? { kind: "string" } : SPECS[key] ?? { kind: "string" }
+	]));
+}
 const basePayload = {
 	version: 3,
 	selection: { vendor: "zhipu", protocol: "chat-completions" },
@@ -499,6 +542,29 @@ if (!hasField(shapeBack.fields, "-toolType")) throw new Error("the in-protocol d
 expectEqual(valueOf(shapeBack.fields, "-apiKeyEnv"), "DEEPSEEK_API_KEY", "the in-protocol default uses the DeepSeek credential");
 expectEqual(valueOf(shapeBack.fields, "-toolType"), "web_search_20250305", "the in-protocol default is DeepSeek Anthropic Messages");
 console.log("shape switch round-trips through DeepSeek's standalone and built-in targets");
+
+// --- spec-driven validation ----------------------------------------------------
+const specStart = await open(basePayload);
+const countInput = specStart.fields.find((props) => props.id.endsWith("-count"));
+if (countInput === void 0) throw new Error("the fixture should render count");
+countInput.onEdit("51");
+let specTree = render(false);
+const invalidCount = fieldsOf(specTree).find((props) => props.id.endsWith("-count"));
+expectEqual(invalidCount?.invalid, true, "51 exceeds the host's count cap");
+expectEqual(saveButtonOf(specTree)?.disabled, true, "an invalid field blocks save");
+invalidCount.onEdit("0");
+specTree = render(false);
+expectEqual(fieldsOf(specTree).find((props) => props.id.endsWith("-count"))?.invalid, true, "0 is below the minimum");
+fieldsOf(specTree).find((props) => props.id.endsWith("-count")).onEdit("10");
+specTree = render(false);
+expectEqual(fieldsOf(specTree).find((props) => props.id.endsWith("-count"))?.invalid, false, "10 is within range");
+expectEqual(saveButtonOf(specTree)?.disabled, false, "a valid value allows save");
+const refInput = specStart.fields.find((props) => props.id.endsWith("-apiKeyEnv"));
+if (refInput === void 0) throw new Error("the fixture should render apiKeyEnv");
+refInput.onEdit("BAD-NAME");
+specTree = render(false);
+expectEqual(fieldsOf(specTree).find((props) => props.id.endsWith("-apiKeyEnv"))?.invalid, true, "a malformed reference is flagged");
+console.log("spec-driven validation marks out-of-range numbers and malformed references");
 
 // --- unmount cancellation ------------------------------------------------------
 const loadCleanup = pendingCleanups[pendingCleanups.length - 1];

@@ -4,22 +4,51 @@
  */
 import * as react from "react";
 import type { Protocol, Shape } from "../catalog.ts";
+import type { FieldSpecWire } from "../contract.ts";
 import type { CatalogEntry, Primitive, Snapshot, TargetDraft } from "./types.ts";
 import { CONFIG_URL, TEST_URL } from "./consts.ts";
 import {
 	ADVANCED,
-	BOOLEANS,
 	CHAT_VARIANT_FIELDS,
 	CHAT_VARIANT_ONLY,
 	CUSTOM_SEARCH_ENGINES,
-	ENUMS,
-	NUMBERS,
+	SUGGESTED_TOOL_TYPES,
 	allCredentialRefs,
 	credentialRefsFor
 } from "./field-meta.ts";
 import { defaultText, fillFromTemplate, seedFromTemplate, stagedValue, toDraft, wireValue } from "./draft.ts";
 import { PROTOCOLS, protocolLabel, supportLabel, vendorLabel } from "./labels.ts";
 import { ChoiceField, ComboField, SecretField, SelectField, SwitchField, ValueField } from "./fields.tsx";
+
+/** The host's credential-reference grammar; the host re-checks it on save. */
+const REF_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/u;
+
+/** Whether one staged value violates the spec the host projected for its field. */
+function specInvalid(spec: FieldSpecWire | undefined, value: Primitive): boolean {
+	if (spec === void 0) return false;
+	const text = typeof value === "string" ? value : "";
+	/** A blank entry is the host's "clear this key" signal, never an error. */
+	if (text.length === 0) return false;
+	switch (spec.kind) {
+		case "positiveInt": {
+			if (!/^\d+$/u.test(text)) return true;
+			const numeric = Number(text);
+			return numeric < 1 || (spec.max !== void 0 && numeric > spec.max);
+		}
+		case "refName":
+			return !REF_NAME.test(text);
+		case "json": {
+			try {
+				const parsed: unknown = JSON.parse(text);
+				return typeof parsed !== "object" || parsed === null || Array.isArray(parsed);
+			} catch {
+				return true;
+			}
+		}
+		default:
+			return false;
+	}
+}
 
 /** The full configuration page. */
 export function ConfigPage({ t }: { t: (key: string) => string }) {
@@ -182,7 +211,7 @@ export function ConfigPage({ t }: { t: (key: string) => string }) {
 		setTesting(true);
 		setTestResult(null);
 		const payload: Record<string, unknown> = { vendor, protocol };
-		for (const [key, value] of Object.entries(draft)) payload[key] = wireValue(key, value);
+		for (const [key, value] of Object.entries(draft)) payload[key] = wireValue(entry?.specs?.[key], value);
 		try {
 			const response = await fetch(TEST_URL, {
 				method: "POST",
@@ -218,7 +247,7 @@ export function ConfigPage({ t }: { t: (key: string) => string }) {
 		setFailed(null);
 		const payload: Record<string, unknown> = { vendor, protocol };
 		/** Send every staged key: a blank value is the host's "clear this key" signal. */
-		for (const [key, value] of Object.entries(draft)) payload[key] = wireValue(key, value);
+		for (const [key, value] of Object.entries(draft)) payload[key] = wireValue(entry?.specs?.[key], value);
 		if (apiKey.length > 0) payload.apiKey = apiKey;
 		try {
 			const response = await fetch(CONFIG_URL, {
@@ -277,8 +306,24 @@ export function ConfigPage({ t }: { t: (key: string) => string }) {
 		setPendingTemplate(null);
 	};
 
-	/** Render one field by its declared type. */
+	/** Localized error copy for one spec; only the kinds that can be invalid are listed. */
+	const invalidLabelOf = (spec: FieldSpecWire | undefined): string => {
+		if (spec?.kind === "positiveInt") {
+			return spec.max !== void 0
+				? t("invalidRange").replace("{max}", String(spec.max))
+				: t("invalidPositive");
+		}
+		if (spec?.kind === "refName") return t("invalidRefName");
+		if (spec?.kind === "json") return t("invalidJson");
+		return t("invalidPositive");
+	};
+
+	/** Whether one staged field currently violates its spec. */
+	const invalidOf = (key: string): boolean => specInvalid(entry?.specs?.[key], stagedValue(draft, entry, key));
+
+	/** Render one field by the spec the host declares for it. */
 	const renderField = (key: string): JSX.Element => {
+		const spec = entry?.specs?.[key];
 		const value = stagedValue(draft, entry, key);
 		const translatedHint = t(`hint_${key}`);
 		/** The locale service returns an untranslated key verbatim, so equality means "no hint". */
@@ -286,6 +331,8 @@ export function ConfigPage({ t }: { t: (key: string) => string }) {
 		const hint = key === "model" && entry?.modelLocked === true ? t("modelLockedHint") : baseHint;
 		const placeholder = defaultText(entry, key);
 		const id = `plugin-config-web-search-diy-${currentId.replace(/[^a-z0-9]+/gu, "-")}-${key}`;
+		const invalid = invalidOf(key);
+		const invalidLabel = invalidLabelOf(spec);
 		if (key === "apiKeyEnv") {
 			/** 只有从未设置过才显示默认；用户清空后保持为空，便于改选或手填。 */
 			const raw = draft[key];
@@ -294,12 +341,12 @@ export function ConfigPage({ t }: { t: (key: string) => string }) {
 			const options = entry?.vendor === "custom"
 				? allCredentialRefs(catalog)
 				: credentialRefsFor(catalog, entry?.vendor ?? "");
-			return <ComboField key={key} id={id} label={labelOf(key)} hint={hint} text={current} options={options.length > 0 ? options : allCredentialRefs(catalog)} onEdit={(next) => { edit(key, next); }} />;
+			return <ComboField key={key} id={id} label={labelOf(key)} hint={hint} text={current} options={options.length > 0 ? options : allCredentialRefs(catalog)} invalid={invalid} invalidLabel={invalidLabel} onEdit={(next) => { edit(key, next); }} />;
 		}
 		if (key === "toolType") {
 			const raw = draft[key];
 			const current = raw === void 0 ? defaultText(entry, key) : String(raw);
-			return <ComboField key={key} id={id} label={labelOf(key)} hint={hint} text={current} options={ENUMS.toolType} onEdit={(next) => { edit(key, next); }} />;
+			return <ComboField key={key} id={id} label={labelOf(key)} hint={hint} text={current} options={SUGGESTED_TOOL_TYPES} onEdit={(next) => { edit(key, next); }} />;
 		}
 		if (key === "searchEngine" && entry?.support === "custom") {
 			/** 自定义网关的引擎名不统一：候选只做提示，允许自由输入，留空不发送。 */
@@ -307,11 +354,11 @@ export function ConfigPage({ t }: { t: (key: string) => string }) {
 			const current = raw === void 0 ? defaultText(entry, key) : String(raw);
 			return <ComboField key={key} id={id} label={labelOf(key)} hint={t("hint_searchEngineCustom")} text={current} options={CUSTOM_SEARCH_ENGINES} onEdit={(next) => { edit(key, next); }} />;
 		}
-		if (BOOLEANS.has(key)) {
+		if (spec?.kind === "boolean") {
 			return <SwitchField key={key} id={id} label={labelOf(key)} hint={hint} checked={value === true} onEdit={(checked) => { edit(key, checked); }} />;
 		}
-		if (ENUMS[key] !== void 0) {
-			const options = ENUMS[key].map((option) => {
+		if (spec?.kind === "enum") {
+			const options = spec.values.map((option) => {
 				const labelKey = `opt_${key}_${option === "" ? "empty" : option}`;
 				const label = t(labelKey);
 				return { value: option, label: label === labelKey ? (option.length > 0 ? option : "—") : label };
@@ -319,19 +366,16 @@ export function ConfigPage({ t }: { t: (key: string) => string }) {
 			const current = String(value) === "" ? defaultText(entry, key) : String(value);
 			return <ChoiceField key={key} id={id} label={labelOf(key)} hint={hint} value={current} options={options} onEdit={(next) => { edit(key, next); }} />;
 		}
-		const numeric = NUMBERS.has(key);
-		const text = String(value);
-		const invalid = numeric && text.length > 0 && !/^\d+$/u.test(text);
 		return <ValueField
 			key={key}
 			id={id}
 			label={labelOf(key)}
 			hint={hint}
-			text={text}
+			text={String(value)}
 			placeholder={placeholder}
-			numeric={numeric}
+			numeric={spec?.kind === "positiveInt"}
 			invalid={invalid}
-			invalidLabel={key === "count" ? t("invalidCount") : t("invalidNumber")}
+			invalidLabel={invalidLabel}
 			disabled={key === "model" && entry?.modelLocked === true}
 			onEdit={(next) => { edit(key, next); }}
 		/>;
@@ -346,6 +390,8 @@ export function ConfigPage({ t }: { t: (key: string) => string }) {
 	));
 	const basic = fields.filter((key) => !ADVANCED.has(key));
 	const advanced = fields.filter((key) => ADVANCED.has(key));
+	/** A staged value the host would reject: saving it can only fail, so the button waits. */
+	const hasInvalid = fields.some((key) => invalidOf(key));
 
 	return (
 		<div className="dwsd-body">
@@ -460,7 +506,7 @@ export function ConfigPage({ t }: { t: (key: string) => string }) {
 				<button type="button" className="dwsd-discard" disabled={testing || entry?.support === "unsupported"} onClick={() => { void test(); }}>{t(testing ? "testing" : "test")}</button>
 				{failed !== null ? <p className="dwsd-failed" role="status">{failed}</p> : null}
 				<button type="button" className="dwsd-discard" disabled={!dirty || saving} onClick={discard}>{t("discard")}</button>
-				<button type="button" className="dwsd-save" disabled={!dirty || saving || entry?.support === "unsupported"} onClick={() => { void save(); }}>{t(saving ? "saving" : "save")}</button>
+				<button type="button" className="dwsd-save" disabled={!dirty || saving || hasInvalid || entry?.support === "unsupported"} onClick={() => { void save(); }}>{t(saving ? "saving" : "save")}</button>
 			</div>
 		</div>
 	);

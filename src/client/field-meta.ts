@@ -1,29 +1,17 @@
 /**
- * Field metadata derived from the host catalog: enum ranges, boolean/numeric
- * sets, chat variants and the advanced section. Display layer only; the host
- * validates authoritatively.
+ * Display policy that the catalog snapshot cannot carry: suggested candidates
+ * and the grouping/filtering rules for the form. Field types and value ranges
+ * come from `entry.specs` (host-projected), never from a local copy.
  */
 import type { CatalogEntry } from "./types.ts";
 
-/** Enum value ranges (display layer; the host validates authoritatively). */
-export const ENUMS: Readonly<Record<string, readonly string[]>> = {
-	toolType: ["web_search", "openrouter:web_search", "web_search_20250305", "web_search_20260209", "web_search_20260318"],
-	thinking: ["default", "disabled"],
-	effort: ["", "low", "medium", "high", "xhigh", "max"],
-	searchEngine: ["search_std", "search_pro", "search_pro_sogou", "search_pro_quark"],
-	searchRecencyFilter: ["noLimit", "oneDay", "oneWeek", "oneMonth", "oneYear"],
-	contentSize: ["medium", "high"],
-	searchStrategy: ["turbo", "max", "agent", "agent_max"],
-	freshness: ["", "noLimit", "oneDay", "oneWeek", "oneMonth", "oneYear"],
-	searchContextSize: ["low", "medium", "high"],
-	externalWebAccess: ["", "true", "false"],
-	returnTokenBudget: ["", "default", "unlimited"],
-	responseInclusion: ["", "full", "excluded"]
-};
-/** Boolean fields. */
-export const BOOLEANS = new Set(["includeSources", "includeContent", "requireSearch", "searchIntent", "forcedSearch", "oriQuestion", "imageCaption"]);
-/** Numeric fields. */
-export const NUMBERS = new Set(["maxOutputTokens", "maxUses", "count", "maxResults", "maxTotalResults", "maxCharacters", "imageMaxResults", "timeoutSeconds", "digestEntries", "digestSnippetChars"]);
+/**
+ * Candidate tool types. Free input stays allowed: the host validates the string
+ * and gateways ship their own tool names (e.g. `openrouter:web_search`).
+ */
+export const SUGGESTED_TOOL_TYPES: readonly string[] = [
+	"web_search", "openrouter:web_search", "web_search_20250305", "web_search_20260209", "web_search_20260318"
+];
 
 /**
  * 自定义网关的搜索引擎取值：智谱、OpenRouter 与常见自建/第三方引擎放在一起，
@@ -47,7 +35,6 @@ export const CHAT_VARIANT_FIELDS: Readonly<Record<string, readonly string[]>> = 
 };
 /** 变体专属字段的并集；这些键只对声明它们的变体渲染。 */
 export const CHAT_VARIANT_ONLY = new Set(Object.values(CHAT_VARIANT_FIELDS).flat());
-
 
 /** Fields folded into the advanced section. */
 export const ADVANCED = new Set([
