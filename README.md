@@ -299,7 +299,7 @@ src/
 pnpm install
 pnpm run build       # Host ESM + Client CJS
 pnpm run typecheck
-pnpm test            # host tests (92)
+pnpm test            # host tests (118)
 pnpm run test:client # rebuild and verify the client contract
 ```
 

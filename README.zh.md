@@ -299,7 +299,7 @@ src/
 pnpm install
 pnpm run build       # Host ESM + Client CJS 双产物
 pnpm run typecheck
-pnpm test            # Host 测试（92 项）
+pnpm test            # Host 测试（118 项）
 pnpm run test:client # 重建并校验 Client 契约
 ```
 
