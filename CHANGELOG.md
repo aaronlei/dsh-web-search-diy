@@ -5,6 +5,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.4] - 2026-10-29
+
+### Added
+
+- **UI copy now covers all eight languages DSH 0.2.2 ships.** The client
+  registers `zh`, `en`, `ja`, `es`, `fr`, `de`, `ru` and `pt` dictionaries
+  (214 keys each). The six new languages live under `src/client/locales/`, and
+  `locale/` metadata follows the same set, so the configuration card, its form
+  and the plugin-list title track Settings → Language.
+- **The client-contract check enforces the full language set.**
+  `scripts/verify-client.mjs` fails when a language is missing or its key set
+  differs from English, instead of checking only `zh`/`en`.
+
+### Changed
+
+- **DSH baseline raised to 0.2.2-alpha.2.** `peerDependencies` admit
+  `^0.2.2-alpha.2`, and `devDependencies` plus the lockfile build against
+  0.2.2-alpha.2 with cordis `~4.0.6-alpha.1`. No plugin API change was needed:
+  the web provider, `webServer` route registration and the
+  `plugins.bundle.config` slot keep their 0.2.1 shapes.
+- **README and the package description document the eight-language copy.**
+
 ## [2.0.3] - 2026-10-28
 
 ### Added
