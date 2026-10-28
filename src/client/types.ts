@@ -86,7 +86,7 @@ export interface SlotProps {
 export interface PluginContext {
 	effect(fn: () => void, label: string): void;
 	locale: {
-		register(ns: string, dictionaries: { zh: Record<string, string>; en: Record<string, string> }): void;
+		register(ns: string, dictionaries: Readonly<Record<string, Record<string, string>>>): void;
 	};
 	slots: {
 		inject(name: string, fn: () => void): void;

@@ -19,7 +19,7 @@ import { ID, NS } from "./consts.ts";
 import type { PluginContext } from "./types.ts";
 import { ConfigPage } from "./page.tsx";
 import { injectStyles } from "./styles.ts";
-import { en, zh } from "./locale.ts";
+import { ALL_LOCALES } from "./locale.ts";
 
 /** Service dependencies: the slot registry and the locale service. */
 const inject = ["slots", "locale"];
@@ -37,7 +37,7 @@ function apply(ctx: PluginContext): void {
 	ctx.effect(() => {
 		injectStyles();
 	}, `${ID}: page stylesheet`);
-	ctx.effect(() => ctx.locale.register(NS, { zh, en }), `${ID}: dictionaries`);
+	ctx.effect(() => ctx.locale.register(NS, ALL_LOCALES), `${ID}: dictionaries`);
 	ctx.effect(() => {
 		ctx.slots.inject("plugins.bundle.config", () => ctx.slots.register({
 			name: "plugins.bundle.config",

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Веб-поиск (dsh-web-search-diy)",
+    "description": "Предоставляет бэкенд для встроенного инструмента web_search по поставщику и протоколу: поиск внутри протокола через Chat Completions / Responses / Anthropic Messages, а также автономные поисковые API DeepSeek, Kimi и Zhipu со структурированными источниками цитирования."
+  }
+}

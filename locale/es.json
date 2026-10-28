@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Búsqueda web (dsh-web-search-diy)",
+    "description": "Proporciona backend a la herramienta web_search integrada según proveedor y protocolo: búsqueda en el protocolo sobre Chat Completions / Responses / Anthropic Messages, además de las API de búsqueda independientes de DeepSeek, Kimi y Zhipu, con fuentes de cita estructuradas."
+  }
+}

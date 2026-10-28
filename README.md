@@ -67,7 +67,7 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 
 ### Configuration page
 
-Location: **Plugins → Installed plugins → the dsh-web-search-diy card** (clicking the card opens this plugin's configuration page). Copy follows Settings → Language (zh / en).
+Location: **Plugins → Installed plugins → the dsh-web-search-diy card** (clicking the card opens this plugin's configuration page). Copy follows Settings → Language (zh, en, ja, es, fr, de, ru, pt).
 
 - **Search kind**: `In-protocol search` or `Standalone search`. Standalone has no model turn, so model and output-budget fields are hidden.
 - **Protocol**: one of Chat Completions / Responses / Anthropic Messages in-protocol; standalone is fixed to `search`.
@@ -290,7 +290,8 @@ src/
     draft.ts      # draft normalization, template fill, number coercion
     labels.ts     # protocol/vendor/support copy
     styles.ts     # card stylesheet
-    locale.ts     # zh/en dictionaries
+    locale.ts     # zh/en dictionaries plus the shared ALL_LOCALES map
+    locales/      # ja / es / fr / de / ru / pt dictionaries
     consts.ts     # loader id and endpoints
     types.ts      # draft and field-prop types
 ```

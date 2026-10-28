@@ -128,9 +128,10 @@ if (dictionaries === null || dictionaries.ns !== "dshWebSearchDiy") throw new Er
 
 const missing = new Set();
 /**
- * Mirrors the real locale service: a key defined by neither language is returned
- * verbatim (`lookup(...) ?? key`), never a synthetic marker. The set below is the
- * test's own completeness check, not part of the contract.
+ * Mirrors the real locale service: a key defined by neither the active language
+ * nor English is returned verbatim (`lookup(...) ?? key`), never a synthetic
+ * marker. The set below is the test's own completeness check, not part of the
+ * contract.
  */
 const t = (key) => {
 	const value = dictionaries.dicts.zh[key] ?? dictionaries.dicts.en[key];
@@ -138,11 +139,18 @@ const t = (key) => {
 	return value ?? key;
 };
 
-/** Both languages must define the same keys: a gap would silently fall back to the other one. */
-const zhKeys = Object.keys(dictionaries.dicts.zh).sort();
+/** Every shipped language (the DSH 0.2.2 catalog) must define the same keys. */
+const expectedLanguages = ["zh", "en", "ja", "es", "fr", "de", "ru", "pt"];
+const shipped = Object.keys(dictionaries.dicts).sort();
+if (shipped.join(",") !== [...expectedLanguages].sort().join(",")) {
+	throw new Error(`unexpected languages: ${shipped.join(", ")}`);
+}
 const enKeys = Object.keys(dictionaries.dicts.en).sort();
-if (zhKeys.join("\n") !== enKeys.join("\n")) {
-	throw new Error(`dictionaries disagree: zh ${zhKeys.length} keys, en ${enKeys.length}`);
+for (const language of expectedLanguages) {
+	const keys = Object.keys(dictionaries.dicts[language]).sort();
+	if (keys.join("\n") !== enKeys.join("\n")) {
+		throw new Error(`dictionaries disagree: ${language} ${keys.length} keys, en ${enKeys.length}`);
+	}
 }
 
 const summary = registered.component({ t, view: "summary" });

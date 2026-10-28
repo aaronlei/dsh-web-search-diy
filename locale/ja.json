@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Web 検索 (dsh-web-search-diy)",
+    "description": "ベンダーとプロトコルごとに組み込みの web_search ツールへバックエンドを提供：Chat Completions / Responses / Anthropic Messages のプロトコル内蔵検索、および DeepSeek・Kimi・Zhipu の独立検索 API。構造化された引用ソースを返します。"
+  }
+}

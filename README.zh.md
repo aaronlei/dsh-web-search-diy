@@ -67,7 +67,7 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 
 ### 配置页
 
-位置：侧栏 **插件 → 已安装插件 → dsh-web-search-diy 卡片**（点击卡片即进入本插件的配置页）。页面跟随 设置 → 语言（zh / en）。
+位置：侧栏 **插件 → 已安装插件 → dsh-web-search-diy 卡片**（点击卡片即进入本插件的配置页）。页面跟随 设置 → 语言（zh、en、ja、es、fr、de、ru、pt）。
 
 - **搜索方式**：`协议内置搜索` 与 `纯工具搜索`；纯工具没有模型回合，表单不显示模型与输出上限。
 - **协议**：内置下三选一（Chat Completions / Responses / Anthropic Messages）；纯工具固定 `search`。
@@ -290,7 +290,8 @@ src/
     draft.ts      # 草稿归一化、模板填充、数值转换
     labels.ts     # 协议/厂商/支持度文案
     styles.ts     # 卡片样式
-    locale.ts     # 中英文案
+    locale.ts     # 中英文案与 ALL_LOCALES 映射
+    locales/      # 日、西班牙、法、德、俄、葡萄牙语词典
     consts.ts     # loader id 与端点
     types.ts      # 草稿与字段 props 类型
 ```

@@ -1,8 +1,16 @@
 /**
- * Card copy for both languages, registered under the `dshWebSearchDiy`
- * namespace. Kept in the bundle so the card follows Settings → Language
- * without a host round-trip.
+ * Card copy for every language the DSH locale service ships (zh, en, ja, es,
+ * fr, de, ru, pt), registered under the `dshWebSearchDiy` namespace. Kept in
+ * the bundle so the card follows Settings → Language without a host round-trip;
+ * languages beyond zh/en live in `./locales/`.
  */
+
+import { ja } from "./locales/ja.ts";
+import { es } from "./locales/es.ts";
+import { fr } from "./locales/fr.ts";
+import { de } from "./locales/de.ts";
+import { ru } from "./locales/ru.ts";
+import { pt } from "./locales/pt.ts";
 
 export const zh: Record<string, string> = {
 	description: "多协议网页搜索：协议内置（Chat Completions / Responses / Anthropic Messages）与纯工具搜索，按厂商选择。",
@@ -437,3 +445,10 @@ export const en: Record<string, string> = {
 	field_searchExtension: "Search extension",
 	field_promptIntervene: "Prompt intervention",
 };
+
+/**
+ * Every dictionary the locale service can select, keyed by the DSH language
+ * ids. Registration hands the whole map to `ctx.locale.register`, so a
+ * language added here becomes available to the card without touching the page.
+ */
+export const ALL_LOCALES: Readonly<Record<string, Record<string, string>>> = { zh, en, ja, es, fr, de, ru, pt };
