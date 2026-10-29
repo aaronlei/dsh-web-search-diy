@@ -23,6 +23,7 @@ interface StandaloneTemplate {
 	readonly titleField: string;
 	readonly snippetField: string;
 	readonly dateField: string;
+	/** 每条结果的长正文字段；写入 seam 的 `summary`，并作为 digest 的兜底。 */
 	readonly contentField: string;
 	readonly queryField: string;
 	readonly countField: string;
@@ -46,7 +47,8 @@ const TEMPLATES: Readonly<Record<string, StandaloneTemplate>> = {
 		titleField: "title",
 		snippetField: "snippet",
 		dateField: "",
-		contentField: "summary",
+		/** `need_content=true` 的正文在 `content`；`summary` 是 600–800 字符的长摘要。 */
+		contentField: "content",
 		queryField: "query",
 		countField: "count"
 	},
@@ -203,6 +205,12 @@ export interface DigestLimits {
 /** catalog 未声明时的兜底。 */
 const DEFAULT_DIGEST_LIMITS: DigestLimits = { maxEntries: 8, maxSnippetChars: 200 };
 
+/**
+ * 每条来源长正文的硬上限。`dsh-tool-web` 会按部署配置再截到 800 字符才给模型，
+ * 这里只阻止个别接口把整页正文塞进 session 的 `tool/result` meta。
+ */
+const SUMMARY_MAX_CHARS = 2000;
+
 /** 生成 `content` 摘要：编号的标题 + 摘要列表。 */
 function digestOf(entries: readonly unknown[], template: StandaloneTemplate, maxEntries: number, maxSnippetLength: number): string {
 	const lines: string[] = [];
@@ -212,10 +220,14 @@ function digestOf(entries: readonly unknown[], template: StandaloneTemplate, max
 		if (item === void 0) continue;
 		const title = (fieldOf(item, template.titleField, "title") ?? "").trim();
 		const snippet = (fieldOf(item, template.snippetField, "snippet") ?? "").trim();
+		/** snippet 为空时回退 contentField，再回退模板的 summary，避免摘要为空。 */
+		const body = snippet.length > 0
+			? snippet
+			: (fieldOf(item, template.contentField, "summary") || fieldOf(item, "summary", "") || "").trim();
 		const head = `${lines.length + 1}. `;
-		if (title.length > 0 && snippet.length > 0) lines.push(`${head}${title}\n${snippet.slice(0, maxSnippetLength)}`);
+		if (title.length > 0 && body.length > 0) lines.push(`${head}${title}\n${body.slice(0, maxSnippetLength)}`);
 		else if (title.length > 0) lines.push(`${head}${title}`);
-		else if (snippet.length > 0) lines.push(`${head}${snippet.slice(0, maxSnippetLength)}`);
+		else if (body.length > 0) lines.push(`${head}${body.slice(0, maxSnippetLength)}`);
 	}
 	return lines.join("\n");
 }
@@ -224,7 +236,8 @@ function digestOf(entries: readonly unknown[], template: StandaloneTemplate, max
  * 归一化一次纯工具搜索的响应。
  *
  * `resultsPath` 定位结果数组（自定义可覆盖），`urlField` 等决定逐项字段名；
- * 有 URL 的项成为来源，前若干条拼成 `content`。空结果集是有效结果。
+ * 有 URL 的项成为来源，`contentField` 的长正文写入 `source.summary`（与
+ * `snippet` 相同则省略），前若干条拼成 `content`。空结果集是有效结果。
  *
  * @param data - 解析后的响应体。
  * @param template - 模板规格。
@@ -245,6 +258,18 @@ export function mapStandaloneResponse(data: unknown, template: StandaloneTemplat
 		if (title !== void 0 && title.length > 0) source.title = title;
 		const snippet = fieldOf(item, template.snippetField, "snippet");
 		if (snippet !== void 0 && snippet.length > 0) source.snippet = snippet;
+		/**
+		 * 长正文进 `summary`：调用方模型优先读它，再退回 snippet。用户配置的
+		 * contentField 优先；该字段为空时回退模板的 `summary`（DeepSeek 的长摘要）。
+		 * 真实 DeepSeek 在未开 `need_content` 时也返回 `content: ""`，所以空串
+		 * 必须按缺失处理，不能只判断键是否存在。
+		 */
+		const summary = (fieldOf(item, template.contentField, "summary") || fieldOf(item, "summary", "") || "").trim();
+		if (summary.length > 0) {
+			const bounded = summary.slice(0, SUMMARY_MAX_CHARS);
+			/** 智谱等接口的正文就是 snippet：重复写一份只会放大 session。 */
+			if (bounded !== snippet) source.summary = bounded;
+		}
 		const publishedAt = isoPublishedAt(fieldOf(item, template.dateField, ""));
 		if (publishedAt !== void 0) source.publishedAt = publishedAt;
 		sources.push(source);

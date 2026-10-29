@@ -12,6 +12,8 @@ export interface MutableSource {
 	url: string;
 	title?: string;
 	snippet?: string;
+	/** 长正文，供调用方模型阅读；`dsh-tool-web` 会再按部署配置截断。 */
+	summary?: string;
 	publishedAt?: string;
 }
 

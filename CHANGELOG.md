@@ -5,6 +5,60 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.5] - 2026-10-29
+
+### Added
+
+- **Standalone results now expose their long body as `source.summary`.** The
+  body comes from `contentField` (DeepSeek's `need_content` field `content`,
+  Zhipu's `content`), falls back to `summary` when the configured field is
+  absent, and is capped at 2,000 characters. It is omitted when identical to
+  `snippet`. `dsh-tool-web` renders `summary` first and caps it at 800
+  characters, so the calling model now reads substantially more than the
+  100–200 character snippet.
+- **`DiySearchProvider.ready()` is implemented.** `ctx.web.searchReady()` now
+  reflects whether the selected target can resolve a credential; a target
+  without a key no longer exposes `web_search` to the model, which previously
+  failed only after the model called it.
+- **Anthropic Messages answers are returned as `content`.** Text blocks are
+  joined in order, matching the Responses and Chat mappings, so the tool output
+  can carry the provider's answer alongside the sources.
+
+### Changed
+
+- **DeepSeek standalone search reads `content`, not `summary`.** The built-in
+  target and the custom DeepSeek template now default `contentField` to
+  `content`, the field carrying the `need_content` body. Existing saved
+  configurations with `contentField: "summary"` keep working: the mapper falls
+  back to `summary` when the configured field is absent. Clear that field to
+  pick up the new default.
+- **A target without a resolvable credential is reported as not ready.** The
+  search tool disappears from the model step instead of failing on invocation;
+  `search()` still raises `WEB_PROVIDER_CREDENTIAL_MISSING` when called
+  directly.
+
+### Fixed
+
+- **`contentField` was a dead setting.** It was stored and validated but never
+  read; the digest only used `snippetField`. It now drives `source.summary` and
+  serves as the digest fallback when `snippet` is empty.
+- **An empty `content` no longer blocks the `summary` fallback.** DeepSeek
+  returns `content: ""` even without `need_content`, so a present-but-empty key
+  must count as absent; otherwise every default DeepSeek search carried no
+  `source.summary`.
+
+### Internal
+
+- Host tests: 129 (was 118); added `test/provider.test.mjs` and coverage for
+  the summary mapping, the digest fallback, the empty-`content` fallback, and
+  the Anthropic answer text.
+- Live verification with a real DeepSeek key on 2026-10-29: `deepseek/search`
+  returned 5 sources with 1,790–2,000-character summaries and a 1,157-character
+  digest; `includeContent=true` used the `need_content` body;
+  `deepseek/anthropic-messages` returned 10 sources plus a 4,336-character
+  answer; a credential-less custom target reported `ready() === false` and
+  raised `WEB_PROVIDER_CREDENTIAL_MISSING`.
+
 ## [2.0.4] - 2026-10-29
 
 ### Added

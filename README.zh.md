@@ -23,6 +23,8 @@
 - 🗂️ **配置 v3** —— 按 `vendor/protocol` 分桶；v1/v2 读取时迁移，首次保存前备份 `.v2.bak`。
 - 🪜 **思考档位自动降级** —— 被端点 400 拒绝的 `reasoning.effort` / `output_config` / `thinking` 会逐个移除后重试。
 - 📦 **响应解码对 dispatcher 免疫** —— 按字节读取并按魔数解压，不受 dsh 全局 undici dispatcher 影响。
+- 📄 **正文进入来源摘要** —— 纯工具搜索的长正文写入 `source.summary`（上限 2,000 字符），模型优先读取；与 `snippet` 相同时不重复写。
+- 🚦 **无凭据不暴露工具** —— 当前 target 解析不出凭据时，`web_search` 不再出现在模型上下文，避免调用后才报错。
 
 ## 能力矩阵
 
@@ -157,6 +159,7 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 - **模板**：内置协议列出该协议可用厂商；纯工具列出 DeepSeek / Kimi / 智谱。选择模板 = 一次性填入端点、凭据、模型与搜索参数，随后可任意修改。
 - **Chat 变体**：由模板决定（智谱问答增强 / 千问联网搜索 / OpenRouter server tool / OpenAI 搜索模型），不作为单独字段展示；字段随变体过滤。
 - **纯工具映射**：`queryField`、`countField`、`resultsPath`、`urlField`、`titleField`、`snippetField`、`dateField`、`contentField` 是权威；模板只负责填充与留空兜底。支持简单点路径（如 `data.items`），不支持完整 JSONPath。
+- **正文字段**：`contentField` 指向每条结果的长正文，写入来源的 `summary`（上限 2,000 字符），并在 `snippet` 为空时作为 `content` 摘要兜底；与 `snippet` 相同时不重复写。DeepSeek 模板默认 `content`（`need_content` 的正文）；旧配置里的 `summary` 仍会被回退读取。
 - **搜索引擎**：输入框 + 常见候选（智谱 / OpenRouter / 自建），可自由填写；智谱模板留空时回落 `search_std`（该接口必填）。
 - **必填项**：Chat 需要变体（模板会填）；Responses / Anthropic 需要 `toolType`；纯工具需要 `path`。
 
@@ -217,7 +220,7 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 - **Responses**：`action.sources[]`、`open_page` / `find_in_page` 的 `action.url`、`results[]` 元数据与 `url_citation` 注解统一归一为去重来源；答案优先取 `phase: "final_answer"`。没有搜索证据时显式失败，404 会提示该端点缺少 `/responses` 路径。
 - **Anthropic Messages**：`web_search_tool_result` → `sources[]`，`citations[].cited_text` → `snippet`，`page_age` → ISO 日期；`allowed_domains` 与 `blocked_domains` 互斥（allowed 优先）；非 `20250305` 工具自动加 `allowed_callers: ["direct"]`。
 - **Chat Completions**：智谱 `web_search` 工具、千问 `enable_search`、OpenRouter server tool、OpenAI 搜索模型四种变体；来源从 `message.web_search[]` 或 `annotations[]` 读取。
-- **纯工具**：结构化结果直接成为 `sources[]`，前若干条摘要拼成 `content`；没有模型回合。
+- **纯工具**：结构化结果直接成为 `sources[]`，`contentField` 的长正文写入 `source.summary`，前若干条摘要拼成 `content`；没有模型回合。
 - **思考档位降级**：按 `reasoning.effort` → `output_config` → `thinking` → `reasoning_effort` 顺序逐个移除后重试。
 - **响应解码**：按字节读取并按 gzip/zlib 魔数解压，设置 8 MiB 线上与 16 MiB 解码上限。
 
@@ -241,6 +244,8 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 | `deepseek/responses` | 0 | 降级符合预期（仅 `open_page`） |
 | `custom/chat` / `responses` / `anthropic` | 8 / 5 / 10 | 2026-10-17 验证 |
 
+> 2026-10-29 用真实 DeepSeek key 复测：`deepseek/search` 5 条来源，`source.summary` 1,790–2,000 字符（开启「返回正文」时改用 `content` 正文）；`deepseek/anthropic-messages` 10 条来源，并返回 4,336 字符答案。
+
 OpenAI、Anthropic、OpenRouter 尚未实测；有这些端点的实际结果，欢迎在「反馈」中补充。
 
 ## 已知限制
@@ -254,6 +259,7 @@ OpenAI、Anthropic、OpenRouter 尚未实测；有这些端点的实际结果，
 - **Kimi Responses** 不支持 `search_context_size` / `blocked_domains`（会 400）。
 - **纯工具搜索没有模型回合**；输出上限由 `digestEntries` / `digestSnippetChars` 控制，不是模型的 token 预算。
 - **测试连接固定查询词** `OpenAI`，只用于验证连通性，不代表搜索质量。
+- **纯工具摘要上限**：`source.summary` 单条 2,000 字符；`dsh-tool-web` 默认再截到 800 字符才交给模型。
 
 ## 反馈
 
@@ -261,7 +267,7 @@ OpenAI、Anthropic、OpenRouter 尚未实测；有这些端点的实际结果，
 
 ## 凭据
 
-在 Web 的 **Models** 页 / 凭据服务里保存（`$DSH_HOME/.credentials.yaml`），或在启动环境中导出。插件每次搜索动态解析，不在 provider 上保留，也不写入配置文件。
+在 Web 的 **Models** 页 / 凭据服务里保存（`$DSH_HOME/.credentials.yaml`），或在启动环境中导出。插件每次搜索动态解析，不在 provider 上保留，也不写入配置文件。当前 target 解析不出凭据时，`web_search` 不会出现在模型上下文。
 
 默认引用链按厂商：DeepSeek `DEEPSEEK_API_KEY`；Kimi `MOONSHOT_API_KEY` → `KIMI_API_KEY` → `KIMI_CODING_API_KEY`；智谱 `ZAI_CODING_CN_API_KEY` → `ZHIPU_API_KEY`；千问 `QWEN_TOKEN_PLAN_API_KEY` → `QWEN_TOKEN_PLAN_CN_API_KEY` → `DASHSCOPE_API_KEY`；OpenAI / Anthropic / OpenRouter 各一条。自定义 target 的引用名由用户填写。
 
@@ -278,7 +284,7 @@ src/
   config.ts       # v3 读写、v1/v2 迁移、字段校验
   endpoint.ts     # GET/POST /api/web-search-diy/config 与 /test
   options.ts      # catalog 默认 + 文件覆盖
-  provider.ts     # available / 按协议分派
+  provider.ts     # available / ready / 按协议分派
   transport.ts    # fetch、解码、reasoning 降级
   protocols/      # responses / anthropic / chat / search
   mappers/        # 来源归一化
@@ -300,7 +306,7 @@ src/
 pnpm install
 pnpm run build       # Host ESM + Client CJS 双产物
 pnpm run typecheck
-pnpm test            # Host 测试（118 项）
+pnpm test            # Host 测试（129 项）
 pnpm run test:client # 重建并校验 Client 契约
 ```
 

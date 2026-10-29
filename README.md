@@ -23,6 +23,8 @@
 - 🗂️ **Configuration v3** — one bucket per `vendor/protocol`; v1/v2 files migrate on read and the old file is backed up as `.v2.bak` before the first save.
 - 🪜 **Thinking-effort fallback** — a rejected `reasoning.effort` / `output_config` / `thinking` is dropped one at a time and retried.
 - 📦 **Dispatcher-proof decoding** — bodies are read as bytes and inflated by magic number, independent of dsh's global undici dispatcher.
+- 📄 **Long bodies become source summaries** — standalone search writes its long body into `source.summary` (capped at 2,000 characters) and skips it when identical to `snippet`; the model reads it before falling back to the snippet.
+- 🚦 **No credential, no tool** — when the selected target cannot resolve a credential, `web_search` is no longer offered to the model instead of failing after invocation.
 
 ## Capability matrix
 
@@ -157,6 +159,7 @@ Location: **Plugins → Installed plugins → the dsh-web-search-diy card** (cli
 - **Templates**: in-protocol targets list the vendors available under that protocol; standalone lists DeepSeek / Kimi / Zhipu. Picking a template performs a one-shot fill of endpoint, credential, model, and search parameters; everything remains editable.
 - **Chat variants**: decided by the template (Zhipu answer augmentation / Qwen web search / OpenRouter server tool / OpenAI search model), not exposed as a separate field; fields are filtered per variant.
 - **Standalone mapping**: `queryField`, `countField`, `resultsPath`, `urlField`, `titleField`, `snippetField`, `dateField`, `contentField` are authoritative; the template only fills them and acts as a blank fallback. Simple dot paths (`data.items`) are supported; full JSONPath is not.
+- **Body field**: `contentField` names each result's long body. It becomes the source's `summary` (capped at 2,000 characters), backs the `content` digest when `snippet` is empty, and is skipped when identical to `snippet`. The DeepSeek template defaults to `content` (the `need_content` body); a saved `summary` keeps working through the fallback.
 - **Search engine**: free input with common candidates (Zhipu / OpenRouter / self-hosted). On the Zhipu template a blank falls back to `search_std` (the API requires it).
 - **Required**: Chat needs a variant (the template fills it); Responses / Anthropic need `toolType`; standalone needs `path`.
 
@@ -217,7 +220,7 @@ you ──> chat LLM ──> web_search tool (model-independent)
 - **Responses**: `action.sources[]`, `open_page` / `find_in_page` `action.url`, `results[]` metadata, and `url_citation` annotations all normalize into deduplicated sources; the answer prefers `phase: "final_answer"`. A reply with no search evidence fails explicitly, and a 404 points out the missing `/responses` path.
 - **Anthropic Messages**: `web_search_tool_result` → `sources[]`, `citations[].cited_text` → `snippet`, `page_age` → ISO date; `allowed_domains` and `blocked_domains` are mutually exclusive (allowed wins); tool types other than `20250305` also send `allowed_callers: ["direct"]`.
 - **Chat Completions**: Zhipu `web_search` tool, Qwen `enable_search`, OpenRouter server tool, OpenAI search model; sources come from `message.web_search[]` or `annotations[]`.
-- **Standalone**: structured results become `sources[]` directly and the first few snippets form `content`; there is no model turn.
+- **Standalone**: structured results become `sources[]`, the `contentField` long body becomes `source.summary`, and the first few snippets form `content`; there is no model turn.
 - **Effort fallback**: drop one knob at a time in the order `reasoning.effort` → `output_config` → `thinking` → `reasoning_effort` and retry.
 - **Decoding**: read as bytes and inflate by gzip/zlib magic, capped at 8 MiB on the wire and 16 MiB decoded.
 
@@ -241,6 +244,8 @@ Real credentials, 2026-10-17 / 2026-10-18:
 | `deepseek/responses` | 0 | degraded as expected (`open_page` only) |
 | `custom/chat` / `responses` / `anthropic` | 8 / 5 / 10 | verified on 2026-10-17 |
 
+> Re-checked with a real DeepSeek key on 2026-10-29: `deepseek/search` returned 5 sources with 1,790–2,000-character `source.summary` values (the `need_content` body is used when “include content” is on); `deepseek/anthropic-messages` returned 10 sources plus a 4,336-character answer.
+
 OpenAI, Anthropic, and OpenRouter are not verified yet; results for these endpoints are welcome under Feedback.
 
 ## Known limitations
@@ -253,6 +258,7 @@ OpenAI, Anthropic, and OpenRouter are not verified yet; results for these endpoi
 - **OpenRouter Anthropic** accepts the `web_search_20250305` alias per its docs, but it is not verified yet.
 - **Kimi Responses** rejects `search_context_size` / `blocked_domains` (400).
 - **Standalone search has no model turn**; its output cap is `digestEntries` / `digestSnippetChars`, not a model token budget.
+- **Standalone source summaries are capped** at 2,000 characters; `dsh-tool-web` then trims them to 800 by default before the model reads them.
 - **Test connection uses a fixed query** (`OpenAI`) and only proves connectivity, not search quality.
 
 ## Feedback
@@ -261,7 +267,7 @@ If you hit an unsupported vendor or gateway, a protocol difference, or a field-m
 
 ## Credentials
 
-Store keys in the Web **Models** page / credentials service (`$DSH_HOME/.credentials.yaml`) or export them in the launching environment. The plugin resolves them per search, never retains them on the provider, and never writes them to the configuration file.
+Store keys in the Web **Models** page / credentials service (`$DSH_HOME/.credentials.yaml`) or export them in the launching environment. The plugin resolves them per search, never retains them on the provider, and never writes them to the configuration file. While the selected target cannot resolve a credential, `web_search` is not offered to the model at all.
 
 Default chains per vendor: DeepSeek `DEEPSEEK_API_KEY`; Kimi `MOONSHOT_API_KEY` → `KIMI_API_KEY` → `KIMI_CODING_API_KEY`; Zhipu `ZAI_CODING_CN_API_KEY` → `ZHIPU_API_KEY`; Qwen `QWEN_TOKEN_PLAN_API_KEY` → `QWEN_TOKEN_PLAN_CN_API_KEY` → `DASHSCOPE_API_KEY`; one each for OpenAI / Anthropic / OpenRouter. Custom targets use a user-supplied reference.
 
@@ -278,7 +284,7 @@ src/
   config.ts       # v3 read/write, v1/v2 migration, field validation
   endpoint.ts     # GET/POST /api/web-search-diy/config and /test
   options.ts      # catalog defaults + file overrides
-  provider.ts     # available / dispatch by protocol
+  provider.ts     # available / ready / dispatch by protocol
   transport.ts    # fetch, decoding, reasoning fallback
   protocols/      # responses / anthropic / chat / search
   mappers/        # source normalization
@@ -300,7 +306,7 @@ src/
 pnpm install
 pnpm run build       # Host ESM + Client CJS
 pnpm run typecheck
-pnpm test            # host tests (118)
+pnpm test            # host tests (129)
 pnpm run test:client # rebuild and verify the client contract
 ```
 

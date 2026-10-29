@@ -813,7 +813,8 @@ export const CUSTOM_TARGETS: Record<string, Capability> = {
 					titleField: "title",
 					snippetField: "snippet",
 					dateField: "",
-					contentField: "summary"
+					/** `need_content` 的正文在 `content`；`summary` 由解析层作为兜底读取。 */
+					contentField: "content"
 				}
 			},
 			{

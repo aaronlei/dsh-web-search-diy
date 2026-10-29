@@ -37,7 +37,32 @@ export class DiySearchProvider implements WebSearchProvider {
 
 	/** 本地廉价可用性检查：target 可选、端点合法、必填项齐全。 */
 	available(): boolean {
+		return this.isUsable(this.resolveOptions());
+	}
+
+	/**
+	 * 下一次搜索能否带上凭据。
+	 *
+	 * 只查配置与凭据面，不做网络请求。`llmProvider` 属于按模型路由区分凭据的部署；
+	 * 本插件按 target 固定一条引用链，因此忽略它。
+	 *
+	 * @param _llmProvider - seam 传入的模型路由 id；本插件不使用。
+	 * @returns 配置可用且能解析出凭据时为 true。
+	 */
+	async ready(_llmProvider?: string): Promise<boolean> {
 		const options = this.resolveOptions();
+		if (!this.isUsable(options)) return false;
+		try {
+			const apiKey = await options.resolveApiKey();
+			return apiKey !== void 0 && apiKey.length > 0;
+		} catch {
+			/** 没有可解析的 key 时搜索必然失败，按不可用处理。 */
+			return false;
+		}
+	}
+
+	/** 一份选项快照上的可用性判断；`available()` 与 `ready()` 共用。 */
+	private isUsable(options: SearchOptions): boolean {
 		const capability = options.capability;
 		if (capability.support === "unsupported") return false;
 		if (options.baseURL.length === 0 || !URL.canParse(options.baseURL)) return false;

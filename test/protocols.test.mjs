@@ -78,7 +78,7 @@ const QWEN_CHAT_BODY = { choices: [{ message: { content: "answer" } }] };
 const ANNOTATIONS_BODY = {
 	choices: [{ message: { content: "answer", annotations: [{ type: "url_citation", url_citation: { url: "https://d.example/1", title: "D" } }] } }]
 };
-const DEEPSEEK_SEARCH_BODY = { results: [{ url: "https://e.example/1", title: "E", snippet: "snippet", summary: "summary" }] };
+const DEEPSEEK_SEARCH_BODY = { results: [{ url: "https://e.example/1", title: "E", snippet: "snippet", summary: "summary", content: "content" }] };
 const KIMI_SEARCH_BODY = { search_results: [{ url: "https://f.example/1", title: "F", snippet: "snippet" }] };
 const ZHIPU_SEARCH_BODY = { search_result: [{ link: "https://g.example/1", title: "G", content: "snippet" }] };
 
@@ -395,7 +395,32 @@ describe("standalone targets", () => {
 		assert.equal(calls[0].body.query, "测试查询");
 		assert.equal(calls[0].body.count, 5);
 		assert.equal(calls[0].body.localization, void 0);
-		assert.deepEqual(result.sources, [{ url: "https://e.example/1", title: "E", snippet: "snippet" }]);
+		assert.deepEqual(result.sources, [{ url: "https://e.example/1", title: "E", snippet: "snippet", summary: "content" }]);
+	});
+
+	it("falls back to the summary field when content is absent", async () => {
+		const body = { results: [{ url: "https://e2.example/1", title: "E2", snippet: "s", summary: "long summary" }] };
+		const { result } = await runSearch(optionsFor("deepseek/search"), [{ body }]);
+		assert.equal(result.sources[0].summary, "long summary");
+	});
+
+	it("falls back to the summary field when content is an empty string", async () => {
+		const body = { results: [{ url: "https://e5.example/1", title: "E5", snippet: "s", summary: "long summary", content: "" }] };
+		const { result } = await runSearch(optionsFor("deepseek/search"), [{ body }]);
+		assert.equal(result.sources[0].summary, "long summary");
+	});
+
+	it("caps the long content at 2000 characters", async () => {
+		const content = "x".repeat(2300);
+		const { result } = await runSearch(optionsFor("deepseek/search"), [{ body: { results: [{ url: "https://e3.example/1", title: "E3", content }] } }]);
+		assert.equal(result.sources[0].summary.length, 2000);
+	});
+
+	it("falls back to the content field when building the digest", async () => {
+		const body = { results: [{ url: "https://e4.example/1", title: "E4", summary: "正文摘要" }] };
+		const options = optionsFor("deepseek/search", { digestEntries: 1, digestSnippetChars: 200 });
+		const { result } = await runSearch(options, [{ body }]);
+		assert.equal(result.content, "1. E4\n正文摘要");
 	});
 
 	it("truncates DeepSeek's query to its 128-character limit", async () => {
@@ -558,6 +583,28 @@ describe("response mapping", () => {
 
 	it("treats an empty anthropic result list as a successful empty search", () => {
 		assert.deepEqual(mapAnthropicResponse({ content: [{ type: "web_search_tool_result", content: [] }] }), { sources: [], truncated: false });
+	});
+
+	it("returns the anthropic answer text as content", () => {
+		const result = mapAnthropicResponse({
+			content: [
+				{ type: "text", text: "first" },
+				{ type: "web_search_tool_result", content: [{ type: "web_search_result", url: "https://b.example/1", title: "B" }] },
+				{ type: "text", text: "second" }
+			]
+		});
+		assert.equal(result.content, "first\nsecond");
+		assert.deepEqual(result.sources, [{ url: "https://b.example/1", title: "B" }]);
+	});
+
+	it("keeps the anthropic answer text when the result list is empty", () => {
+		const result = mapAnthropicResponse({
+			content: [
+				{ type: "text", text: "no results" },
+				{ type: "web_search_tool_result", content: [] }
+			]
+		});
+		assert.deepEqual(result, { content: "no results", sources: [], truncated: false });
 	});
 
 	it("surfaces the anthropic tool error code", () => {

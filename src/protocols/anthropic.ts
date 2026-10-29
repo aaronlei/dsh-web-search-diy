@@ -16,8 +16,9 @@ import { asArray, asRecord, asString } from "../wire.ts";
  * 把 Anthropic 兼容 Messages 响应体归一化成 seam 标准 `WebSearchResult`。
  *
  * 来源取自 `web_search_tool_result` 块的 `web_search_result` 项；`snippet` 由
- * `citations[].cited_text` 按 URL 合并；`page_age` 归一化为 `publishedAt`。结果块
- * 的 `content` 是对象时表示工具失败，暴露其 `error_code`。空结果列表是有效结果。
+ * `citations[].cited_text` 按 URL 合并；`page_age` 归一化为 `publishedAt`；`content`
+ * 取所有非空 `text` 块的拼接，与 Responses / Chat 的行为一致。结果块的 `content`
+ * 是对象时表示工具失败，暴露其 `error_code`。空结果列表是有效结果。
  *
  * @param data - 解析后的响应体。
  * @returns 归一化结果。
@@ -26,9 +27,12 @@ import { asArray, asRecord, asString } from "../wire.ts";
 export function mapAnthropicResponse(data: unknown): WebSearchResult {
 	const blocks = asArray(asRecord(data)?.content);
 	const snippets = new Map<string, string>();
+	const texts: string[] = [];
 	for (const rawBlock of blocks) {
 		const block = asRecord(rawBlock);
 		if (block?.type !== "text") continue;
+		const text = asString(block.text);
+		if (text !== void 0 && text.length > 0) texts.push(text);
 		for (const rawCite of asArray(block.citations)) {
 			const cite = asRecord(rawCite);
 			const url = asString(cite?.url);
@@ -38,6 +42,8 @@ export function mapAnthropicResponse(data: unknown): WebSearchResult {
 			if (!snippets.has(url)) snippets.set(url, citedText);
 		}
 	}
+	/** 多个 text 块按出现顺序拼接；空文本不进入答案。 */
+	const answer = texts.length > 0 ? texts.join("\n") : void 0;
 	const seen = new Set<string>();
 	const sources: MutableSource[] = [];
 	let toolError: string | undefined;
@@ -69,9 +75,10 @@ export function mapAnthropicResponse(data: unknown): WebSearchResult {
 			sources.push(source);
 		}
 	}
-	if (sources.length === 0 && searched) return { sources, truncated: false };
+	if (sources.length === 0 && searched) return { ...(answer !== void 0 ? { content: answer } : {}), sources, truncated: false };
 	if (sources.length === 0) throw new WebError(toolError ?? "the provider returned no web_search_tool_result block; the endpoint may not implement the Anthropic web_search tool", "WEB_PROVIDER_ERROR");
 	return {
+		...(answer !== void 0 ? { content: answer } : {}),
 		sources,
 		truncated: false
 	};
