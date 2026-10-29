@@ -156,7 +156,7 @@ export const de: Record<string, string> = {
 	hint_titleField: "Name des Titelfelds pro Ergebnis. Leer = Vorlagenstandard (title).",
 	hint_snippetField: "Name des Snippet-Felds pro Ergebnis. Leer = Vorlagenstandard (content für Zhipu, sonst snippet).",
 	hint_dateField: "Name des Datumsfelds pro Ergebnis. Leer = Datumsangaben werden nicht ausgewertet; nur setzen, wenn die Antwort sie enthält.",
-	hint_contentField: "Name des Inhaltsfelds pro Ergebnis. Leer = es wird kein Inhalts-Digest erstellt.",
+	hint_contentField: "Name des Langtextfelds pro Ergebnis. Der Text wird zur Quellzusammenfassung (max. 2000 Zeichen, entfällt bei Gleichheit mit snippet) und dient als Rückfall für den content-Digest, wenn snippet leer ist; leer = Rückfall auf das Feld summary.",
 	field_baseURL: "Endpunkt",
 	field_apiKeyEnv: "Anmeldedaten-Referenz",
 	field_model: "Modell",

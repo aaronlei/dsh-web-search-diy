@@ -23,7 +23,7 @@
 - 🗂️ **Configuration v3** — one bucket per `vendor/protocol`; v1/v2 files migrate on read and the old file is backed up as `.v2.bak` before the first save.
 - 🪜 **Thinking-effort fallback** — a rejected `reasoning.effort` / `output_config` / `thinking` is dropped one at a time and retried.
 - 📦 **Dispatcher-proof decoding** — bodies are read as bytes and inflated by magic number, independent of dsh's global undici dispatcher.
-- 📄 **Long bodies become source summaries** — standalone search writes its long body into `source.summary` (capped at 2,000 characters) and skips it when identical to `snippet`; the model reads it before falling back to the snippet.
+- 📄 **Long bodies become source summaries** — standalone search writes its long body into `source.summary` (capped at 2,000 characters) and skips it when the original body equals `snippet`; snippets are capped the same way. The model reads the summary before falling back to the snippet.
 - 🚦 **No credential, no tool** — when the selected target cannot resolve a credential, `web_search` is no longer offered to the model instead of failing after invocation.
 
 ## Capability matrix
@@ -159,7 +159,7 @@ Location: **Plugins → Installed plugins → the dsh-web-search-diy card** (cli
 - **Templates**: in-protocol targets list the vendors available under that protocol; standalone lists DeepSeek / Kimi / Zhipu. Picking a template performs a one-shot fill of endpoint, credential, model, and search parameters; everything remains editable.
 - **Chat variants**: decided by the template (Zhipu answer augmentation / Qwen web search / OpenRouter server tool / OpenAI search model), not exposed as a separate field; fields are filtered per variant.
 - **Standalone mapping**: `queryField`, `countField`, `resultsPath`, `urlField`, `titleField`, `snippetField`, `dateField`, `contentField` are authoritative; the template only fills them and acts as a blank fallback. Simple dot paths (`data.items`) are supported; full JSONPath is not.
-- **Body field**: `contentField` names each result's long body. It becomes the source's `summary` (capped at 2,000 characters), backs the `content` digest when `snippet` is empty, and is skipped when identical to `snippet`. The DeepSeek template defaults to `content` (the `need_content` body); a saved `summary` keeps working through the fallback.
+- **Body field**: `contentField` names each result's long body. It becomes the source's `summary` (capped at 2,000 characters), backs the `content` digest when `snippet` is empty, and is skipped when the original body equals `snippet` — the check runs before the cap, so a long Zhipu `content` is not stored twice. `snippet` is capped at 2,000 characters too. The DeepSeek template defaults to `content` (the `need_content` body); a saved `summary` keeps working through the fallback.
 - **Search engine**: free input with common candidates (Zhipu / OpenRouter / self-hosted). On the Zhipu template a blank falls back to `search_std` (the API requires it).
 - **Required**: Chat needs a variant (the template fills it); Responses / Anthropic need `toolType`; standalone needs `path`.
 
@@ -258,7 +258,7 @@ OpenAI, Anthropic, and OpenRouter are not verified yet; results for these endpoi
 - **OpenRouter Anthropic** accepts the `web_search_20250305` alias per its docs, but it is not verified yet.
 - **Kimi Responses** rejects `search_context_size` / `blocked_domains` (400).
 - **Standalone search has no model turn**; its output cap is `digestEntries` / `digestSnippetChars`, not a model token budget.
-- **Standalone source summaries are capped** at 2,000 characters; `dsh-tool-web` then trims them to 800 by default before the model reads them.
+- **Standalone source text is capped** at 2,000 characters for both `snippet` and `summary`, without splitting surrogate pairs; `dsh-tool-web` then trims `summary` to 800 by default before the model reads it.
 - **Test connection uses a fixed query** (`OpenAI`) and only proves connectivity, not search quality.
 
 ## Feedback
@@ -306,7 +306,7 @@ src/
 pnpm install
 pnpm run build       # Host ESM + Client CJS
 pnpm run typecheck
-pnpm test            # host tests (129)
+pnpm test            # host tests (136)
 pnpm run test:client # rebuild and verify the client contract
 ```
 

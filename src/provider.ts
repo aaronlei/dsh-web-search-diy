@@ -27,12 +27,16 @@ function needsModel(protocol: string): boolean {
 export class DiySearchProvider implements WebSearchProvider {
 	readonly id = PROVIDER_ID;
 	private readonly resolveOptions: () => SearchOptions;
+	/** 就绪检查失败时的诊断出口；无头组合不传时保持静默。 */
+	private readonly warn: ((message: string) => void) | undefined;
 
 	/**
 	 * @param resolveOptions - 下一次操作的选项，在每个操作入口处快照一次。
+	 * @param warn - 就绪检查异常时的诊断出口。
 	 */
-	constructor(resolveOptions: () => SearchOptions) {
+	constructor(resolveOptions: () => SearchOptions, warn?: (message: string) => void) {
 		this.resolveOptions = resolveOptions;
+		this.warn = warn;
 	}
 
 	/** 本地廉价可用性检查：target 可选、端点合法、必填项齐全。 */
@@ -55,8 +59,9 @@ export class DiySearchProvider implements WebSearchProvider {
 		try {
 			const apiKey = await options.resolveApiKey();
 			return apiKey !== void 0 && apiKey.length > 0;
-		} catch {
-			/** 没有可解析的 key 时搜索必然失败，按不可用处理。 */
+		} catch (error) {
+			/** 没有可解析的 key 时搜索必然失败，按不可用处理；留下诊断线索。 */
+			this.warn?.(`web search readiness check failed for ${options.capability.id}: ${String(error)}`);
 			return false;
 		}
 	}

@@ -156,7 +156,7 @@ export const fr: Record<string, string> = {
 	hint_titleField: "Nom du champ titre de chaque résultat. Vide = valeur par défaut du gabarit (title).",
 	hint_snippetField: "Nom du champ extrait de chaque résultat. Vide = valeur par défaut du gabarit (content pour Zhipu, snippet ailleurs).",
 	hint_dateField: "Nom du champ date de chaque résultat. Vide = dates non analysées ; à définir seulement si la réponse en contient.",
-	hint_contentField: "Nom du champ contenu de chaque résultat. Vide = aucun digest de contenu n'est construit.",
+	hint_contentField: "Nom du champ corps long de chaque résultat. Le corps devient le résumé de la source (2000 caractères max, omis s'il est identique à snippet) et sert de repli au digest content quand snippet est vide ; vide = repli sur le champ summary.",
 	field_baseURL: "Point de terminaison",
 	field_apiKeyEnv: "Référence d'identifiant",
 	field_model: "Modèle",

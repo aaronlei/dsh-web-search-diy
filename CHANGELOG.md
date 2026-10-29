@@ -12,10 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Standalone results now expose their long body as `source.summary`.** The
   body comes from `contentField` (DeepSeek's `need_content` field `content`,
   Zhipu's `content`), falls back to `summary` when the configured field is
-  absent, and is capped at 2,000 characters. It is omitted when identical to
-  `snippet`. `dsh-tool-web` renders `summary` first and caps it at 800
-  characters, so the calling model now reads substantially more than the
-  100–200 character snippet.
+  absent, and is capped at 2,000 characters. It is omitted when the configured
+  body equals the original `snippet`, and both `snippet` and `summary` are
+  capped at 2,000 characters without splitting surrogate pairs. `dsh-tool-web`
+  renders `summary` first and caps it at 800 characters, so the calling model
+  now reads substantially more than the 100–200 character snippet.
 - **`DiySearchProvider.ready()` is implemented.** `ctx.web.searchReady()` now
   reflects whether the selected target can resolve a credential; a target
   without a key no longer exposes `web_search` to the model, which previously
@@ -46,12 +47,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   returns `content: ""` even without `need_content`, so a present-but-empty key
   must count as absent; otherwise every default DeepSeek search carried no
   `source.summary`.
+- **A long body is no longer duplicated when `snippetField` and `contentField`
+  name the same key.** The equality check now uses the pre-cap values, so the
+  2,000-character prefix is not written a second time as `summary` (Zhipu
+  `content_size=high`).
+- **The 2,000-character caps no longer split surrogate pairs.** A capped
+  `snippet`, `summary`, or digest excerpt cannot end with a lone UTF-16
+  surrogate.
 
 ### Internal
 
-- Host tests: 129 (was 118); added `test/provider.test.mjs` and coverage for
-  the summary mapping, the digest fallback, the empty-`content` fallback, and
-  the Anthropic answer text.
+- Host tests: 136 (was 118); added `test/provider.test.mjs` and coverage for
+  the summary mapping, the digest fallback, the empty-`content` fallback, the
+  snippet/summary deduplication boundary, surrogate-safe caps, the launch
+  environment credential fallback, the readiness diagnostic log, real-seam
+  `searchReady()`, and the Anthropic answer text.
 - Live verification with a real DeepSeek key on 2026-10-29: `deepseek/search`
   returned 5 sources with 1,790–2,000-character summaries and a 1,157-character
   digest; `includeContent=true` used the `need_content` body;

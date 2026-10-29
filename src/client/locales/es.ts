@@ -156,7 +156,7 @@ export const es: Record<string, string> = {
 	hint_titleField: "Nombre del campo de título de cada resultado. Vacío usa el predeterminado de la plantilla (title).",
 	hint_snippetField: "Nombre del campo de fragmento de cada resultado. Vacío usa el predeterminado de la plantilla (content para Zhipu, snippet en los demás).",
 	hint_dateField: "Nombre del campo de fecha de cada resultado. Vacío significa que no se analizan fechas; defínalo solo si la respuesta las incluye.",
-	hint_contentField: "Nombre del campo de contenido de cada resultado. Vacío significa que no se crea resumen de contenido.",
+	hint_contentField: "Nombre del campo de cuerpo largo de cada resultado. El cuerpo pasa a ser el resumen de la fuente (máximo 2000 caracteres, omitido si coincide con snippet) y respalda el digest de content cuando snippet está vacío; vacío = usa el campo summary.",
 	field_baseURL: "Punto de conexión",
 	field_apiKeyEnv: "Referencia de credencial",
 	field_model: "Modelo",

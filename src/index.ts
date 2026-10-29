@@ -37,7 +37,10 @@ export function apply(ctx: Context): void {
 	selectDefaultTarget(ctx, readConfigDocument()).then((target) => {
 		fallback = target;
 	}, () => void 0);
-	ctx.web.registerSearchProvider(new DiySearchProvider(() => resolveCurrentOptions(ctx, fallback)));
+	ctx.web.registerSearchProvider(new DiySearchProvider(
+		() => resolveCurrentOptions(ctx, fallback),
+		(message) => ctx.logger.warn(message)
+	));
 	// The config endpoint rides the webServer service when it appears (web
 	// profiles). Non-web compositions never provide webServer, so the inject
 	// simply never fires — no dedicated row or disabled flag is needed.

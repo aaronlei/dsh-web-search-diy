@@ -156,7 +156,7 @@ export const ja: Record<string, string> = {
 	hint_titleField: "各結果のタイトルフィールド名。空欄はテンプレート既定（title）。",
 	hint_snippetField: "各結果の要約フィールド名。空欄はテンプレート既定（Zhipu は content、他は snippet）。",
 	hint_dateField: "各結果の日付フィールド名。空欄は日付を解析しません。応答に日付がある場合のみ設定。",
-	hint_contentField: "各結果の正文字段名。空欄は content ダイジェストを作成しません。",
+	hint_contentField: "各結果の長文フィールド名。本文は source.summary になります（1 件 2000 文字上限、snippet と同じなら省略）。snippet が空のときは content ダイジェストのフォールバックにもなり、空欄は summary フィールドにフォールバックします。",
 	field_baseURL: "エンドポイント",
 	field_apiKeyEnv: "資格情報参照",
 	field_model: "モデル",

@@ -206,10 +206,26 @@ export interface DigestLimits {
 const DEFAULT_DIGEST_LIMITS: DigestLimits = { maxEntries: 8, maxSnippetChars: 200 };
 
 /**
- * 每条来源长正文的硬上限。`dsh-tool-web` 会按部署配置再截到 800 字符才给模型，
- * 这里只阻止个别接口把整页正文塞进 session 的 `tool/result` meta。
+ * 每条来源正文的硬上限（`snippet` 与 `summary` 共用）。`dsh-tool-web` 会按部署
+ * 配置把 `summary` 再截到 800 字符才给模型；这里阻止个别接口（如智谱
+ * `content_size=high`）把整页正文塞进 session 的 `tool/result` meta。
  */
-const SUMMARY_MAX_CHARS = 2000;
+const SOURCE_TEXT_MAX_CHARS = 2000;
+
+/**
+ * 按 UTF-16 码元截断，且不切断代理对（emoji 等非 BMP 字符）。
+ *
+ * @param value - 原字符串。
+ * @param limit - 最大码元数。
+ * @returns 不超过 `limit` 个码元的前缀。
+ */
+function truncateWithoutSplittingSurrogatePair(value: string, limit: number): string {
+	if (value.length <= limit) return value;
+	const end = limit - 1;
+	if (end < 0) return "";
+	const last = value.charCodeAt(end);
+	return value.slice(0, last >= 0xd800 && last <= 0xdbff ? end : limit);
+}
 
 /** 生成 `content` 摘要：编号的标题 + 摘要列表。 */
 function digestOf(entries: readonly unknown[], template: StandaloneTemplate, maxEntries: number, maxSnippetLength: number): string {
@@ -225,9 +241,10 @@ function digestOf(entries: readonly unknown[], template: StandaloneTemplate, max
 			? snippet
 			: (fieldOf(item, template.contentField, "summary") || fieldOf(item, "summary", "") || "").trim();
 		const head = `${lines.length + 1}. `;
-		if (title.length > 0 && body.length > 0) lines.push(`${head}${title}\n${body.slice(0, maxSnippetLength)}`);
+		const excerpt = truncateWithoutSplittingSurrogatePair(body, maxSnippetLength);
+		if (title.length > 0 && excerpt.length > 0) lines.push(`${head}${title}\n${excerpt}`);
 		else if (title.length > 0) lines.push(`${head}${title}`);
-		else if (body.length > 0) lines.push(`${head}${body.slice(0, maxSnippetLength)}`);
+		else if (excerpt.length > 0) lines.push(`${head}${excerpt}`);
 	}
 	return lines.join("\n");
 }
@@ -237,7 +254,8 @@ function digestOf(entries: readonly unknown[], template: StandaloneTemplate, max
  *
  * `resultsPath` 定位结果数组（自定义可覆盖），`urlField` 等决定逐项字段名；
  * 有 URL 的项成为来源，`contentField` 的长正文写入 `source.summary`（与
- * `snippet` 相同则省略），前若干条拼成 `content`。空结果集是有效结果。
+ * `snippet` 相同则省略），前若干条拼成 `content`。`snippet` 与 `summary` 都
+ * 截到 {@link SOURCE_TEXT_MAX_CHARS} 个码元。空结果集是有效结果。
  *
  * @param data - 解析后的响应体。
  * @param template - 模板规格。
@@ -257,7 +275,9 @@ export function mapStandaloneResponse(data: unknown, template: StandaloneTemplat
 		const title = fieldOf(item, template.titleField, "title");
 		if (title !== void 0 && title.length > 0) source.title = title;
 		const snippet = fieldOf(item, template.snippetField, "snippet");
-		if (snippet !== void 0 && snippet.length > 0) source.snippet = snippet;
+		if (snippet !== void 0 && snippet.length > 0) {
+			source.snippet = truncateWithoutSplittingSurrogatePair(snippet, SOURCE_TEXT_MAX_CHARS);
+		}
 		/**
 		 * 长正文进 `summary`：调用方模型优先读它，再退回 snippet。用户配置的
 		 * contentField 优先；该字段为空时回退模板的 `summary`（DeepSeek 的长摘要）。
@@ -265,10 +285,12 @@ export function mapStandaloneResponse(data: unknown, template: StandaloneTemplat
 		 * 必须按缺失处理，不能只判断键是否存在。
 		 */
 		const summary = (fieldOf(item, template.contentField, "summary") || fieldOf(item, "summary", "") || "").trim();
-		if (summary.length > 0) {
-			const bounded = summary.slice(0, SUMMARY_MAX_CHARS);
-			/** 智谱等接口的正文就是 snippet：重复写一份只会放大 session。 */
-			if (bounded !== snippet) source.summary = bounded;
+		/**
+		 * 智谱等接口的正文就是 snippet：用截断前的原值比较，重复写一份只会放大
+		 * session；在截断后比较会把「超长正文与其截断前缀」误判为不同。
+		 */
+		if (summary.length > 0 && summary !== (snippet ?? "").trim()) {
+			source.summary = truncateWithoutSplittingSurrogatePair(summary, SOURCE_TEXT_MAX_CHARS);
 		}
 		const publishedAt = isoPublishedAt(fieldOf(item, template.dateField, ""));
 		if (publishedAt !== void 0) source.publishedAt = publishedAt;

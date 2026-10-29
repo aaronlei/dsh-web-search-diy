@@ -416,6 +416,35 @@ describe("standalone targets", () => {
 		assert.equal(result.sources[0].summary.length, 2000);
 	});
 
+	it("omits the summary when the body equals the snippet", async () => {
+		const body = { results: [{ url: "https://e6.example/1", title: "E6", snippet: "same body", content: "same body" }] };
+		const { result } = await runSearch(optionsFor("deepseek/search"), [{ body }]);
+		assert.deepEqual(result.sources, [{ url: "https://e6.example/1", title: "E6", snippet: "same body" }]);
+	});
+
+	it("does not duplicate a long body that is also the snippet", async () => {
+		const content = "z".repeat(2600);
+		const body = { search_result: [{ link: "https://z.example/1", title: "Z", content }] };
+		const { result } = await runSearch(optionsFor("zhipu/search"), [{ body }]);
+		assert.deepEqual(result.sources, [{ url: "https://z.example/1", title: "Z", snippet: content.slice(0, 2000) }]);
+	});
+
+	it("caps the snippet without splitting a surrogate pair", async () => {
+		const content = "a" + "😀".repeat(1500);
+		const { result } = await runSearch(optionsFor("deepseek/search"), [{ body: { results: [{ url: "https://e7.example/1", title: "E7", content }] } }]);
+		const summary = result.sources[0].summary;
+		assert.equal(summary.length, 1999);
+		const last = summary.charCodeAt(summary.length - 1);
+		assert.ok(last < 0xd800 || last > 0xdbff, "the cap must not leave a lone high surrogate");
+	});
+
+	it("caps the digest without splitting a surrogate pair", async () => {
+		const body = { results: [{ url: "https://e8.example/1", title: "E8", summary: "a".repeat(199) + "😀".repeat(10) }] };
+		const options = optionsFor("deepseek/search", { digestEntries: 1, digestSnippetChars: 200 });
+		const { result } = await runSearch(options, [{ body }]);
+		assert.equal(result.content, `1. E8\n${"a".repeat(199)}`);
+	});
+
 	it("falls back to the content field when building the digest", async () => {
 		const body = { results: [{ url: "https://e4.example/1", title: "E4", summary: "正文摘要" }] };
 		const options = optionsFor("deepseek/search", { digestEntries: 1, digestSnippetChars: 200 });

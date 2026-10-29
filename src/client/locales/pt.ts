@@ -156,7 +156,7 @@ export const pt: Record<string, string> = {
 	hint_titleField: "Nome do campo de título de cada resultado. Vazio usa o padrão do template (title).",
 	hint_snippetField: "Nome do campo de trecho de cada resultado. Vazio usa o padrão do template (content para Zhipu, snippet nos demais).",
 	hint_dateField: "Nome do campo de data de cada resultado. Vazio significa que datas não são analisadas; defina apenas se a resposta as contiver.",
-	hint_contentField: "Nome do campo de conteúdo de cada resultado. Vazio significa que nenhum resumo de conteúdo é criado.",
+	hint_contentField: "Nome do campo de corpo longo de cada resultado. O corpo vira o resumo da fonte (máx. 2000 caracteres, omitido quando igual a snippet) e serve de fallback para o digest de content quando snippet está vazio; vazio = usa o campo summary.",
 	field_baseURL: "Endpoint",
 	field_apiKeyEnv: "Referência de credencial",
 	field_model: "Modelo",
