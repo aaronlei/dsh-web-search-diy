@@ -5,6 +5,75 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-10-31
+
+### Added
+
+- **Built-in observability.** Every real search and test connection now writes
+  one observation to `$DSH_HOME/web-search-diy/observations.db` through
+  `node:sqlite` (WAL, `busy_timeout`, foreign keys, 0700/0600 permissions). A
+  record and its source rows commit in one transaction, and any open or write
+  failure disables observability with a single diagnostic instead of affecting
+  the search. `GET /summary`, `GET /records`, `GET /export`, `DELETE /records`
+  and `POST /import` expose aggregation, pagination, JSONL/CSV export and a
+  typed-`DELETE` clear. P50/P95 are computed in the application layer, so the
+  plugin does not depend on SQLite window functions, and retention keeps the
+  latest 50,000 rows without time-based pruning.
+- **Failure classes and a local request timeout.** `postJson` maps HTTP statuses
+  and transport failures to stable codes (`AUTH`, `RATE_LIMIT`, `SERVER`,
+  `REQUEST`, `TIMEOUT`, `NETWORK`, `ERROR`); `requestTimeoutMs` defaults to
+  25 s and test connections use 60 s. A local timeout is recorded as
+  `WEB_PROVIDER_TIMEOUT`, while caller cancellation remains `WEB_ABORTED`.
+- **Observability page.** A first-level "Config / Observability" tab with an
+  overview (five metric cards, target ranking, success-rate/P95 trend, recent
+  records) and a records view (status and query filters, expandable source
+  details, JSON copy, page-number pagination, export, data management). All
+  eight languages ship the new copy.
+- **Calendar ranges and page-number pagination.** The range picker offers
+  presets plus a month calendar for start/end dates, independently for queries
+  and imports. `since` accepts presets or ISO timestamps and `until` accepts
+  ISO timestamps; a custom end day includes the whole local day. The records
+  endpoint now accepts `page`/`limit`, returns the filtered `total`, and clamps
+  out-of-range pages; the UI offers 10/20/50/100 rows, ellipsis-folded page
+  numbers and jump-to-page.
+- **Historical import.** Session logs are scanned for `web_search` calls,
+  converted into deterministic `history:<sessionId>:<seq>` ids and imported
+  idempotently. All protocols now record a `web/deepseek-search-llm-request`
+  event with the target id, so imports can identify the target; older events
+  fall back to catalog endpoint matching, and calls with neither are marked
+  `historical`. Imports accept `since`/`until` and can backfill the target of an
+  existing history row.
+
+### Changed
+
+- **Records pagination contract**: the `before` cursor and `nextBefore`
+  response were replaced by `page`/`limit` and `total`; the bundled client is
+  updated in the same release.
+- **The default import range is now 24 hours** instead of all history; choose
+  "All" or a custom range to import older sessions.
+- **`searchIntent` was removed** from Zhipu targets and the custom standalone
+  mapping. The field was stored and validated but never sent to any endpoint.
+
+### Fixed
+
+- **Historical imports can identify targets for Responses, Chat and standalone
+  searches.** Those protocols previously never wrote a request event, so every
+  imported row fell back to `historical`.
+- **A later re-import backfills the target of an existing history row** instead
+  of inserting a duplicate.
+- **The import endpoint accepts older `until` boundaries** and rejects reversed
+  ranges with 400.
+- **The records page reports the filtered total** and no longer accumulates
+  rows across pages.
+
+### Internal
+
+- Host tests: 180 (was 136); client contract checks cover the new range
+  defaults, pagination, import defaults and the eight dictionaries.
+- SQLite schema v2 adds readable answer and source URL/title/snippet/summary
+  columns; v1 databases migrate in place.
+- `lib/index.js` and `lib/client.js` rebuilt.
+
 ## [2.0.5] - 2026-10-29
 
 ### Added

@@ -11,20 +11,24 @@
   <a href="https://github.com/deepseek-ai/deepseek-harness"><img alt="dsh plugin" src="https://img.shields.io/badge/dsh-plugin-4D6BFE?style=flat-square"></a>
 </p>
 
-> A **web search provider plugin** for the **DeepSeek Harness (DSH)**. It supplies the built-in `web_search` tool per **vendor × protocol**: three in-protocol shapes (Chat Completions / Responses / Anthropic Messages) plus standalone search, covering DeepSeek, Kimi, Zhipu, Qwen, OpenAI, Anthropic, OpenRouter, and four custom targets. Results are normalized into **structured citation sources** for the calling model to ground its answer on.
+> A **web search provider plugin** for the **DeepSeek Harness (DSH)**. It supplies the built-in `web_search` tool per **vendor × protocol**: three in-protocol shapes (Chat Completions / Responses / Anthropic Messages) plus standalone search, covering DeepSeek, Kimi, Zhipu, Qwen, OpenAI, Anthropic, OpenRouter, and four custom targets. Results are normalized into **structured citation sources** for the calling model to ground its answer on. The plugin also ships an observability page that records every search and can backfill history from older session logs.
 
 ## Capabilities
 
 - 🧭 **Vendor × protocol matrix** — 17 official targets (13 full + 4 degraded) and 4 custom targets. Only combinations that really search appear in the vendor list; the rest live in a collapsed section with a reason.
 - 🎛️ **Three-layer configuration page** — search kind → protocol → vendor. Fields come from the catalog served by the host; a blank value means the combination's default.
 - 🧩 **Custom targets** — a template picker performs a one-shot fill (selection resets, nothing is saved); endpoint, path, request field names, and response field names are all editable.
-- 🧪 **Test connection** — runs one real search with the staged draft (nothing persisted) and grades the result by source quality.
+- 🧪 **Test connection** — runs one real search with the staged draft (nothing saved to the configuration) and grades the result by source quality.
 - 🔐 **Write-only credentials** — API keys are stored through the credentials service, never in the configuration file; each vendor offers its reference chain.
 - 🗂️ **Configuration v3** — one bucket per `vendor/protocol`; v1/v2 files migrate on read and the old file is backed up as `.v2.bak` before the first save.
 - 🪜 **Thinking-effort fallback** — a rejected `reasoning.effort` / `output_config` / `thinking` is dropped one at a time and retried.
 - 📦 **Dispatcher-proof decoding** — bodies are read as bytes and inflated by magic number, independent of dsh's global undici dispatcher.
 - 📄 **Long bodies become source summaries** — standalone search writes its long body into `source.summary` (capped at 2,000 characters) and skips it when the original body equals `snippet`; snippets are capped the same way. The model reads the summary before falling back to the snippet.
 - 🚦 **No credential, no tool** — when the selected target cannot resolve a credential, `web_search` is no longer offered to the model instead of failing after invocation.
+- 📊 **Built-in observability page** — a first-level "Config / Observability" tab. The overview shows searches, success rate, P50/P95, average sources, summary coverage, a target ranking, success-rate/P95 trends and recent records; the records view filters by status and query, expands source details, and copies a record as JSON.
+- 🗄️ **Local observation store and historical import** — `node:sqlite` with WAL, 0600 permissions, transactional writes and a 50,000-row retention cap. Importing scans `$DSH_HOME/sessions` for older `web_search` calls and is idempotent; JSONL/CSV export and a typed-`DELETE` clear are available.
+- 🧱 **Failure classes and request timeout** — HTTP statuses, network failures and local timeouts map to stable error codes; `requestTimeoutMs` defaults to 25 s (60 s for test connections), and caller cancellation stays distinct from a timeout.
+- 📅 **Calendar ranges and page-number pagination** — presets plus a month calendar for start/end dates, independently for queries and imports; records page by page number with 10/20/50/100 rows and jump-to-page.
 
 ## Capability matrix
 
@@ -144,11 +148,11 @@ Location: **Plugins → Installed plugins → the dsh-web-search-diy card** (cli
 | Responses · DeepSeek | `toolType`; the model is locked to `deepseek-v4-pro` and `include` is not sent |
 | Responses · OpenRouter | `toolType`, `includeSources`, `engine`, `mode`, `maxResults`, `maxUses`, `maxTotalResults`, `searchContextSize`, `maxCharacters`, `userLocation`, `allowedDomains`, `excludedDomains`, `xSearch` |
 | Anthropic Messages | `toolType`, `maxUses`, `thinking`, `effort`, `allowedDomains`, `blockedDomains`, `userLocation`, `responseInclusion` |
-| Chat · Zhipu | `searchEngine`, `count`, `searchRecencyFilter`, `contentSize`, `searchDomainFilter`, `searchIntent`, `requireSearch`, `searchPrompt`, `reasoningEffort` |
+| Chat · Zhipu | `searchEngine`, `count`, `searchRecencyFilter`, `contentSize`, `searchDomainFilter`, `requireSearch`, `searchPrompt`, `reasoningEffort` |
 | Chat · Qwen | `searchStrategy`, `forcedSearch`, `freshness`, `assignedSiteList`, `searchExtension`, `promptIntervene` |
 | Chat · OpenRouter | `engine`, `mode`, `maxResults`, `maxUses`, `maxTotalResults`, `searchContextSize`, `maxCharacters`, `userLocation`, `allowedDomains`, `excludedDomains`, `xSearch` |
 | Chat · OpenAI | no search parameters; the model is locked to `gpt-5-search-api` |
-| Standalone | `count`, `includeContent`, `searchEngine` / `contentSize` / `searchIntent` / `searchRecencyFilter` / `searchDomainFilter` (Zhipu), `oriQuestion` / `localization` (DeepSeek), `timeoutSeconds` (Kimi), `digestEntries`, `digestSnippetChars`; custom adds `path` and the 8 mapping fields |
+| Standalone | `count`, `includeContent`, `searchEngine` / `contentSize` / `searchRecencyFilter` / `searchDomainFilter` (Zhipu), `oriQuestion` / `localization` (DeepSeek), `timeoutSeconds` (Kimi), `digestEntries`, `digestSnippetChars`; custom adds `path` and the 8 mapping fields |
 
 > `oriQuestion` sends the human prompt that triggered the search as DeepSeek's `ori_question`: whitespace collapsed, cut to 128 characters, read from the initiating Session and omitted outside one. It shares the source used by the official `web-deepseek-api` provider (`sendOriginalQuestion`).
 
@@ -193,7 +197,7 @@ Location: **Plugins → Installed plugins → the dsh-web-search-diy card** (cli
 
 ## Test connection
 
-The page's **Test connection** button runs one real search with the **staged draft**, without persisting anything:
+The page's **Test connection** button runs one real search with the **staged draft**, without persisting the draft (the observation store records one `test` row, excluded from statistics by default):
 
 - query fixed to `OpenAI`, `maxResults = 3`, timeout 60 s;
 - in-protocol: Responses / Anthropic send `Perform a web search for the query: OpenAI`; Chat sends `OpenAI` directly;
@@ -223,6 +227,15 @@ you ──> chat LLM ──> web_search tool (model-independent)
 - **Standalone**: structured results become `sources[]`, the `contentField` long body becomes `source.summary`, and the first few snippets form `content`; there is no model turn.
 - **Effort fallback**: drop one knob at a time in the order `reasoning.effort` → `output_config` → `thinking` → `reasoning_effort` and retry.
 - **Decoding**: read as bytes and inflate by gzip/zlib magic, capped at 8 MiB on the wire and 16 MiB decoded.
+
+### Observability and historical import
+
+- **Capture**: the provider reports one outcome per real search and per test connection, for both success and failure: target/vendor/protocol, session id, query, duration, error code and source counts. The sink wraps its own writes, so a storage failure logs one diagnostic and never changes the search result.
+- **Storage**: `node:sqlite` writes `$DSH_HOME/web-search-diy/observations.db` with WAL, `busy_timeout` and foreign keys; the directory and files are tightened to 0700/0600. A record and its source rows commit in one transaction. On open, `PRAGMA user_version` drives schema migrations and only the latest 50,000 rows are retained (never time-based, so imported history is not pruned). When `node:sqlite` is unavailable, the directory is unwritable, or the database is corrupt, observability is disabled and search keeps working.
+- **Failure classes**: `401/403` → `WEB_PROVIDER_AUTH`; `408/504` and local timeouts → `WEB_PROVIDER_TIMEOUT`; `429` → `WEB_PROVIDER_RATE_LIMIT`; `5xx` → `WEB_PROVIDER_SERVER`; other 4xx (except `400`) → `WEB_PROVIDER_REQUEST`; `400` and unparseable bodies → `WEB_PROVIDER_ERROR`; transport failures → `WEB_PROVIDER_NETWORK`; caller cancellation → `WEB_ABORTED`.
+- **Queries and pagination**: `GET /api/web-search-diy/observability/summary|records|export`, `DELETE .../records`, `POST .../import`. P50/P95 are computed in the application layer by sorting `duration_ms` and interpolating, avoiding a dependency on SQLite window functions. Records are read by `page`/`limit` and return the filtered `total`; out-of-range pages clamp to the last page.
+- **Time ranges**: `since` accepts relative presets or ISO timestamps, `until` accepts ISO timestamps; a custom end day includes the whole local day up to `23:59:59.999`. Presets and "until now" send no `until`, and the default range is the last 24 hours. Query and import ranges are independent.
+- **Historical import**: scans session logs for `tool/call` (`web_search`) events and their results, uses deterministic `history:<sessionId>:<seq>` ids and only adds what is missing. All protocols in this release write a `web/deepseek-search-llm-request` event with the target id between the call and its result; events without a target fall back to matching the catalog default endpoint, and calls with neither are marked `historical` (shown as "History"). Imports accept `since`/`until` and also backfill the target of an existing history row.
 
 ## Live verification
 
@@ -260,6 +273,11 @@ OpenAI, Anthropic, and OpenRouter are not verified yet; results for these endpoi
 - **Standalone search has no model turn**; its output cap is `digestEntries` / `digestSnippetChars`, not a model token budget.
 - **Standalone source text is capped** at 2,000 characters for both `snippet` and `summary`, without splitting surrogate pairs; `dsh-tool-web` then trims `summary` to 800 by default before the model reads it.
 - **Test connection uses a fixed query** (`OpenAI`) and only proves connectivity, not search quality.
+- **Observability requires `node:sqlite`** — when the module is missing, the directory is unwritable, or the database is corrupt, the whole observability layer is disabled with one diagnostic; search is unaffected.
+- **The observation store keeps the latest 50,000 rows** — retention is not time-based, and imported history shares the same cap.
+- **Historical import can only recover calls present in session logs** — an older session with neither a request event nor an endpoint matching a catalog default keeps the `historical` target; re-running the import does not change it.
+- **Test and compare records are excluded by default** — enable "Include test connections" in the toolbar to count them. Test connections always use the fixed `OpenAI` query.
+- **Time ranges follow the browser's local day** — a custom end day includes the whole day, so boundaries shift with the viewer's time zone.
 
 ## Feedback
 
@@ -279,15 +297,16 @@ Host and Client both live in `src/`; built artifacts are committed:
 
 ```
 src/
-  index.ts        # apply: registers the provider and the config/test endpoints
+  index.ts        # apply: registers the provider, config/test and observability endpoints
   catalog.ts      # capability matrix, defaults, fields, templates
   config.ts       # v3 read/write, v1/v2 migration, field validation
   endpoint.ts     # GET/POST /api/web-search-diy/config and /test
   options.ts      # catalog defaults + file overrides
   provider.ts     # available / ready / dispatch by protocol
-  transport.ts    # fetch, decoding, reasoning fallback
+  transport.ts    # fetch, decoding, reasoning fallback, failure classes
   protocols/      # responses / anthropic / chat / search
   mappers/        # source normalization
+  observability/  # store, aggregation, historical import, export, endpoints
   client/         # browser half, bundled into one lib/client.js
     index.tsx     # apply: card registration, stylesheet and dictionaries
     page.tsx      # config page: shape → protocol → vendor, field form, test/save
@@ -298,6 +317,7 @@ src/
     styles.ts     # card stylesheet
     locale.ts     # zh/en dictionaries plus the shared ALL_LOCALES map
     locales/      # ja / es / fr / de / ru / pt dictionaries
+    obs/          # observability page: overview, records, calendar range, charts
     consts.ts     # loader id and endpoints
     types.ts      # draft and field-prop types
 ```
@@ -306,7 +326,7 @@ src/
 pnpm install
 pnpm run build       # Host ESM + Client CJS
 pnpm run typecheck
-pnpm test            # host tests (136)
+pnpm test            # host tests (180)
 pnpm run test:client # rebuild and verify the client contract
 ```
 

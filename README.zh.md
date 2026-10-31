@@ -11,20 +11,24 @@
   <a href="https://github.com/deepseek-ai/deepseek-harness"><img alt="dsh 插件" src="https://img.shields.io/badge/dsh-plugin-4D6BFE?style=flat-square"></a>
 </p>
 
-> **DeepSeek Harness（DSH）网页搜索提供方插件**。按「厂商 × 协议」为内置 `web_search` 工具提供后端：三种协议内置搜索（Chat Completions / Responses / Anthropic Messages）与纯工具搜索，覆盖 DeepSeek、Kimi、智谱、千问、OpenAI、Anthropic、OpenRouter，并提供四个自定义入口。结果统一归一为**结构化引用来源**，供调用方模型作为作答依据。
+> **DeepSeek Harness（DSH）网页搜索提供方插件**。按「厂商 × 协议」为内置 `web_search` 工具提供后端：三种协议内置搜索（Chat Completions / Responses / Anthropic Messages）与纯工具搜索，覆盖 DeepSeek、Kimi、智谱、千问、OpenAI、Anthropic、OpenRouter，并提供四个自定义入口。结果统一归一为**结构化引用来源**，供调用方模型作为作答依据。插件同时内置观测页，记录每次搜索的耗时、错误与来源，并支持从旧会话日志补录历史调用。
 
 ## 核心能力
 
 - 🧭 **厂商 × 协议矩阵** —— 17 个官方 target（13 完整 + 4 降级）与 4 个自定义入口；只有真实能搜索的组合会出现在厂商列表，其余放进「本版未接入的组合」并给出原因。
 - 🎛️ **配置页三层选择** —— 搜索方式 → 协议 → 厂商；字段由 Host 下发的 catalog 决定，留空即用该组合的默认值。
 - 🧩 **自定义接入** —— 模板下拉只做一次性填充（选完清空、不保存）；端点、路径、请求字段名与响应字段名都可覆盖。
-- 🧪 **测试连接** —— 用当前草稿跑一次真实搜索（不写盘），按来源质量分档提示。
+- 🧪 **测试连接** —— 用当前草稿跑一次真实搜索（不写配置），按来源质量分档提示。
 - 🔐 **凭据只写** —— API key 经凭据服务保存，不写入配置文件；引用名按厂商给出候选链。
 - 🗂️ **配置 v3** —— 按 `vendor/protocol` 分桶；v1/v2 读取时迁移，首次保存前备份 `.v2.bak`。
 - 🪜 **思考档位自动降级** —— 被端点 400 拒绝的 `reasoning.effort` / `output_config` / `thinking` 会逐个移除后重试。
 - 📦 **响应解码对 dispatcher 免疫** —— 按字节读取并按魔数解压，不受 dsh 全局 undici dispatcher 影响。
 - 📄 **正文进入来源摘要** —— 纯工具搜索的长正文写入 `source.summary`（上限 2,000 字符），原文与 `snippet` 相同时不重复写；`snippet` 同样截到 2,000 字符。模型优先读取摘要。
 - 🚦 **无凭据不暴露工具** —— 当前 target 解析不出凭据时，`web_search` 不再出现在模型上下文，避免调用后才报错。
+- 📊 **内置观测页** —— 「配置 / 观测」一级 tab；概览给出搜索次数、成功率、P50/P95、平均来源、摘要覆盖、target 排行、成功率与 P95 趋势以及最近记录；记录页按状态、搜索词筛选，展开来源明细，复制整条 JSON。
+- 🗄️ **本地观测库与历史导入** —— `node:sqlite` 落盘（WAL、0600、事务写入、只保留最近 50,000 条）；导入扫描 `$DSH_HOME/sessions` 里旧的 `web_search` 调用，重复导入只补新增；支持 JSONL/CSV 导出与需输入 `DELETE` 的清空。
+- 🧱 **失败分层与超时** —— HTTP 状态、网络失败与本地超时归为稳定错误码；`requestTimeoutMs` 默认 25 秒（测试连接 60 秒），调用方取消与超时分开记录。
+- 📅 **日历时间范围与页码分页** —— 预设范围之外可用月历选择起止日期，查询与导入各自独立；记录页按页码翻页，支持 10/20/50/100 条每页与跳页。
 
 ## 能力矩阵
 
@@ -144,11 +148,11 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 | Responses · DeepSeek | `toolType`；模型锁定 `deepseek-v4-pro`，不发 `include` |
 | Responses · OpenRouter | `toolType`、`includeSources`、`engine`、`mode`、`maxResults`、`maxUses`、`maxTotalResults`、`searchContextSize`、`maxCharacters`、`userLocation`、`allowedDomains`、`excludedDomains`、`xSearch` |
 | Anthropic Messages | `toolType`、`maxUses`、`thinking`、`effort`、`allowedDomains`、`blockedDomains`、`userLocation`、`responseInclusion` |
-| Chat · 智谱 | `searchEngine`、`count`、`searchRecencyFilter`、`contentSize`、`searchDomainFilter`、`searchIntent`、`requireSearch`、`searchPrompt`、`reasoningEffort` |
+| Chat · 智谱 | `searchEngine`、`count`、`searchRecencyFilter`、`contentSize`、`searchDomainFilter`、`requireSearch`、`searchPrompt`、`reasoningEffort` |
 | Chat · 千问 | `searchStrategy`、`forcedSearch`、`freshness`、`assignedSiteList`、`searchExtension`、`promptIntervene` |
 | Chat · OpenRouter | `engine`、`mode`、`maxResults`、`maxUses`、`maxTotalResults`、`searchContextSize`、`maxCharacters`、`userLocation`、`allowedDomains`、`excludedDomains`、`xSearch` |
 | Chat · OpenAI | 无搜索参数；模型锁定 `gpt-5-search-api` |
-| 纯工具 | `count`、`includeContent`、`searchEngine` / `contentSize` / `searchIntent` / `searchRecencyFilter` / `searchDomainFilter`（智谱）、`oriQuestion` / `localization`（DeepSeek）、`timeoutSeconds`（Kimi）、`digestEntries`、`digestSnippetChars`；自定义另含 `path` 与 8 个映射字段 |
+| 纯工具 | `count`、`includeContent`、`searchEngine` / `contentSize` / `searchRecencyFilter` / `searchDomainFilter`（智谱）、`oriQuestion` / `localization`（DeepSeek）、`timeoutSeconds`（Kimi）、`digestEntries`、`digestSnippetChars`；自定义另含 `path` 与 8 个映射字段 |
 
 > `oriQuestion` 把本次触发搜索的用户原话作为 DeepSeek 的 `ori_question` 发送：折叠连续空白、截断到 128 字符，取自当前发起会话，不在会话中时自动省略。与官方 `web-deepseek-api` 的 `sendOriginalQuestion` 使用同一数据源。
 
@@ -193,7 +197,7 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 
 ## 测试连接
 
-配置页底部的「测试连接」用**当前草稿**执行一次真实搜索，不写盘：
+配置页底部的「测试连接」用**当前草稿**执行一次真实搜索，不写配置文件（观测库会记一条 `test` 记录，默认不计入统计）：
 
 - 查询词固定 `OpenAI`，`maxResults = 3`，超时 60 秒；
 - 协议内置：Responses / Anthropic 发送 `Perform a web search for the query: OpenAI`，Chat 直接发送 `OpenAI`；
@@ -223,6 +227,15 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 - **纯工具**：结构化结果直接成为 `sources[]`，`contentField` 的长正文写入 `source.summary`，前若干条摘要拼成 `content`；没有模型回合。
 - **思考档位降级**：按 `reasoning.effort` → `output_config` → `thinking` → `reasoning_effort` 顺序逐个移除后重试。
 - **响应解码**：按字节读取并按 gzip/zlib 魔数解压，设置 8 MiB 线上与 16 MiB 解码上限。
+
+### 观测与历史导入
+
+- **采集**：provider 在每次真实搜索与测试连接结束时上报一条 outcome，成功和失败都记；字段包括 target / vendor / protocol、会话 id、搜索词、耗时、错误码与来源计数。采集出口自身再兜一层异常，写入失败只告警一次，搜索返回值不受影响。
+- **存储**：`node:sqlite` 写入 `$DSH_HOME/web-search-diy/observations.db`；启用 WAL、`busy_timeout` 与外键，目录和文件分别收紧到 0700 / 0600。一条记录与它的来源明细在同一事务内提交；启动时按 `PRAGMA user_version` 迁移，并只保留最近 50,000 条（不按时间删除，避免导入的旧记录被时间窗口清掉）。`node:sqlite` 不可用、目录不可写或数据库损坏时，整层观测禁用，搜索照常工作。
+- **失败分层**：`401/403` → `WEB_PROVIDER_AUTH`；`408/504` 与本地超时 → `WEB_PROVIDER_TIMEOUT`；`429` → `WEB_PROVIDER_RATE_LIMIT`；`5xx` → `WEB_PROVIDER_SERVER`；其余 4xx（`400` 除外）→ `WEB_PROVIDER_REQUEST`；`400` 与响应体不可解析 → `WEB_PROVIDER_ERROR`；网络失败 → `WEB_PROVIDER_NETWORK`；调用方取消 → `WEB_ABORTED`。
+- **查询与分页**：`GET /api/web-search-diy/observability/summary|records|export`、`DELETE .../records`、`POST .../import`。P50/P95 在应用层对 `duration_ms` 排序后线性插值，不依赖 SQLite 窗口函数；记录页按 `page` / `limit` 取一页，同时返回筛选后的 `total`，页码越界时夹紧到最后一页。
+- **时间范围**：`since` 接受相对预设或 ISO 时间，`until` 只接受 ISO 时间；自定义结束日按本地自然日的 `23:59:59.999` 计入。预设与「至今」不发送 `until`，默认范围是近 24 小时；查询范围与导入范围各自独立。
+- **历史导入**：扫描会话日志里的 `tool/call`（`web_search`）与对应结果，按 `history:<sessionId>:<seq>` 生成确定性 id，重复导入只补新增。新版本所有协议都会在调用与结果之间写入 `web/deepseek-search-llm-request` 事件并携带 target；旧事件没有 target 时按 catalog 默认端点回退；两者都没有时记为 `historical`（界面显示「历史记录」）。导入可限定 `since` / `until`，也能为已存在的历史记录补全 target。
 
 ## 实测结果
 
@@ -260,6 +273,11 @@ OpenAI、Anthropic、OpenRouter 尚未实测；有这些端点的实际结果，
 - **纯工具搜索没有模型回合**；输出上限由 `digestEntries` / `digestSnippetChars` 控制，不是模型的 token 预算。
 - **测试连接固定查询词** `OpenAI`，只用于验证连通性，不代表搜索质量。
 - **纯工具来源文本上限**：`snippet` 与 `summary` 单条都截到 2,000 字符，且不切断代理对；`dsh-tool-web` 默认再把 `summary` 截到 800 字符才交给模型。
+- **观测库依赖 `node:sqlite`**：Node 构建不提供该模块、目录不可写或数据库损坏时，观测整层禁用（只告警一次），搜索本身不受影响。
+- **观测库保留上限**：最近 50,000 条，不按时间自动删除；历史导入的记录同样受这个上限约束。
+- **历史导入只能还原会话日志里出现过的调用**：旧版本会话既没有请求事件、端点又匹配不上 catalog 默认值时，target 只能标为「历史记录」，无法反推；这类记录重跑导入也不会改变。
+- **测试与比对记录默认不计入统计**：工具条勾选「包含测试连接」后才纳入；测试连接固定使用 `OpenAI` 查询词。
+- **时间范围按浏览器本地时区的自然日**：自定义结束日包含当天整天，跨时区查看时边界随浏览器时区变化。
 
 ## 反馈
 
@@ -279,15 +297,16 @@ Host 与 Client 都在 `src/` 维护，构建产物入库：
 
 ```
 src/
-  index.ts        # apply：注册 provider 与配置/测试端点
+  index.ts        # apply：注册 provider、配置/测试与观测端点
   catalog.ts      # 能力矩阵、默认值、字段、模板
   config.ts       # v3 读写、v1/v2 迁移、字段校验
   endpoint.ts     # GET/POST /api/web-search-diy/config 与 /test
   options.ts      # catalog 默认 + 文件覆盖
   provider.ts     # available / ready / 按协议分派
-  transport.ts    # fetch、解码、reasoning 降级
+  transport.ts    # fetch、解码、reasoning 降级、错误分层
   protocols/      # responses / anthropic / chat / search
   mappers/        # 来源归一化
+  observability/  # 观测库、聚合、历史导入、导出、观测端点
   client/         # 浏览器侧，构建为单个 lib/client.js
     index.tsx     # apply：卡片注册、样式与词典
     page.tsx      # 配置页：形态 → 协议 → 厂商、字段表单、测试/保存
@@ -298,6 +317,7 @@ src/
     styles.ts     # 卡片样式
     locale.ts     # 中英文案与 ALL_LOCALES 映射
     locales/      # 日、西班牙、法、德、俄、葡萄牙语词典
+    obs/          # 观测页：概览、记录、日历范围、趋势图、样式
     consts.ts     # loader id 与端点
     types.ts      # 草稿与字段 props 类型
 ```
@@ -306,7 +326,7 @@ src/
 pnpm install
 pnpm run build       # Host ESM + Client CJS 双产物
 pnpm run typecheck
-pnpm test            # Host 测试（136 项）
+pnpm test            # Host 测试（180 项）
 pnpm run test:client # 重建并校验 Client 契约
 ```
 
