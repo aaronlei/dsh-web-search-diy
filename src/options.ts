@@ -24,6 +24,7 @@ export const SEARCH_BASE_URL_ENV = "DEEPSEEK_SEARCH_BASE_URL";
 /** 所有字段的兜底值；catalog 未声明的字段靠它保持类型完整。 */
 const DEFAULT_SETTINGS: ResolvedSettings = {
 	baseURL: "",
+	requestTimeoutMs: 25_000,
 	model: "",
 	maxOutputTokens: 4096,
 	toolType: "",

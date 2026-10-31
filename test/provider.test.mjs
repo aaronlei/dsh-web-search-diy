@@ -89,7 +89,7 @@ describe("DiySearchProvider readiness", () => {
 	it("logs a diagnostic when the credential check throws", async () => {
 		const messages = [];
 		const ctx = { get: (name) => name === "credentials" ? { resolve: async () => { throw new Error("keychain locked"); } } : void 0 };
-		const provider = new DiySearchProvider(() => optionsFor("custom/search", CUSTOM_TARGET, ctx), (message) => messages.push(message));
+		const provider = new DiySearchProvider(() => optionsFor("custom/search", CUSTOM_TARGET, ctx), { warn: (message) => messages.push(message) });
 		assert.equal(await provider.ready(), false);
 		assert.equal(messages.length, 1);
 		assert.match(messages[0], /readiness check failed for custom\/search/u);

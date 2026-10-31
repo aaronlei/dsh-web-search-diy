@@ -1,6 +1,6 @@
 {
   "name": "dsh-web-search-diy",
-  "version": "2.0.5",
+  "version": "2.1.0",
   "description": "DSH web search provider selected by vendor x protocol: Chat Completions, Responses, and Anthropic Messages with built-in search tools, plus the standalone search APIs of DeepSeek, Kimi, and Zhipu; four custom targets cover gateways; UI copy follows the app language (zh, en, ja, es, fr, de, ru, pt).",
   "icon": "./icon.svg",
   "license": "MIT",
@@ -76,17 +76,19 @@
     "dsh",
     "plugin",
     "web-search",
-    "web_search",
+    "web search",
+    "websearch",
     "diy-search",
-    "dashscope",
     "openai-compatible",
     "responses-api",
+    "anthropic-messages",
+    "messages-api",
     "qwen",
+    "qianwen",
     "zhipu",
     "bigmodel",
     "glm",
-    "anthropic-messages",
-    "messages-api"
+    "kimi"
   ],
   "repository": {
     "type": "git",

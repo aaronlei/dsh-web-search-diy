@@ -320,8 +320,14 @@ describe("plugin lifecycle", () => {
 			}
 		};
 		apply(ctx);
-		assert.deepEqual(routes, ["/api/web-search-diy/config", "/api/web-search-diy/test"]);
+		assert.deepEqual(routes, [
+			"/api/web-search-diy/config",
+			"/api/web-search-diy/test",
+			"/api/web-search-diy/observability/summary",
+			"/api/web-search-diy/observability/export",
+			"/api/web-search-diy/observability/records"
+		]);
 		for (const dispose of disposers) dispose();
-		assert.deepEqual(disposed, routes);
+		assert.deepEqual(disposed, [...routes].reverse(), "routes are released in reverse registration order");
 	});
 });

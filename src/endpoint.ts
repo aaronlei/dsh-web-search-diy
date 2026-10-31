@@ -20,11 +20,13 @@ import {
 	specsOf
 } from "./config.ts";
 import { resolveOptions, selectedTargetOf } from "./options.ts";
-import { DiySearchProvider } from "./provider.ts";
+import { DiySearchProvider, type OutcomeListener } from "./provider.ts";
 
 /** 最小 HTTP 请求形状：只包含本端点用到的成员。 */
 export interface HttpRequestLike {
 	readonly method?: string;
+	/** 原始请求路径与查询串；观测端点用它读取筛选参数。 */
+	readonly url?: string;
 	on(event: "data", listener: (chunk: unknown) => void): void;
 	on(event: "end", listener: () => void): void;
 	on(event: "error", listener: (error: unknown) => void): void;
@@ -202,8 +204,9 @@ function validateTargetValues(capability: Capability, merged: Record<string, unk
  *
  * @param ctx - 插件上下文（credentials 经 `ctx.get` 取得）。
  * @param webServer - host webserver 服务。
+ * @param onTestOutcome - 测试连接的观测采集出口；未启用观测时省略。
  */
-export function registerConfigEndpoint(ctx: Context, webServer: WebServerLike): () => void {
+export function registerConfigEndpoint(ctx: Context, webServer: WebServerLike, onTestOutcome?: OutcomeListener): () => void {
 	/** 每次打开配置页都会探测全部厂商的凭据链；短 TTL 合并重复的 GET，保存后立即失效。 */
 	const CREDENTIAL_CACHE_MS = 2000;
 	let credentialCache: { at: number; value: Record<string, boolean> } | undefined;
@@ -315,6 +318,8 @@ export function registerConfigEndpoint(ctx: Context, webServer: WebServerLike): 
 			const saved = readConfigDocument().targets[id] ?? {};
 			const merged: Record<string, unknown> = { ...saved, ...patch };
 			for (const key of cleared) delete merged[key];
+			/** 草稿未显式设置时给 60 秒：测试连接的预算不应被 25 秒的搜索超时打断。 */
+			if (merged.requestTimeoutMs === void 0) merged.requestTimeoutMs = 60_000;
 			/** 测试连接走与保存完全相同的校验，避免“保存被拒、测试却发出请求”的错位。 */
 			const customError = validateCustom(capability, merged);
 			if (customError !== void 0) return sendJson(res, 400, { error: customError });
@@ -323,7 +328,10 @@ export function registerConfigEndpoint(ctx: Context, webServer: WebServerLike): 
 			const options = resolveOptions(ctx, { version: CONFIG_VERSION, targets: { [id]: merged } }, id as TargetId);
 			const started = Date.now();
 			try {
-				const result = await new DiySearchProvider(() => options).search({ query: "OpenAI", maxResults: 3 }, AbortSignal.timeout(60_000));
+				const result = await new DiySearchProvider(() => options, {
+					...(onTestOutcome !== void 0 ? { onOutcome: onTestOutcome } : {}),
+					kind: "test"
+				}).search({ query: "OpenAI", maxResults: 3 }, AbortSignal.timeout(60_000));
 				return sendJson(res, 200, {
 					ok: true,
 					sourceCount: result.sources.length,
@@ -343,7 +351,8 @@ export function registerConfigEndpoint(ctx: Context, webServer: WebServerLike): 
 		}
 	});
 	return () => {
-		disposeConfig();
+		/** 后注册先释放。 */
 		disposeTest();
+		disposeConfig();
 	};
 }

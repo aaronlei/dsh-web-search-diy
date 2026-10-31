@@ -19,6 +19,8 @@ export interface RecordedSearchRequest {
 /** 所有配置字段解析后的完整形态（catalog 默认 + 文件覆盖）。 */
 export interface ResolvedSettings {
 	baseURL: string;
+	/** 单次搜索的本地超时（毫秒）。 */
+	requestTimeoutMs: number;
 	model: string;
 	maxOutputTokens: number;
 	toolType: string;

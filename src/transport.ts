@@ -10,7 +10,7 @@ import { WebError } from "@deepseek-ai/dsh-web";
 import { gunzipSync, inflateSync } from "node:zlib";
 
 /** 每个请求都带上的归属头；`test/catalog.test.mjs` 断言它与 package.json 版本一致。 */
-export const USER_AGENT = "dsh-web-search-diy/2.0.5";
+export const USER_AGENT = "dsh-web-search-diy/2.1.0";
 
 /** gzip 成员魔数（RFC 1952）与 zlib 的默认 CMF 字节（RFC 1950）。 */
 const GZIP_MAGIC_FIRST = 0x1f;
@@ -154,6 +154,25 @@ export function dropReasoningKnob(body: Record<string, unknown>): Record<string,
 }
 
 /**
+ * HTTP 状态到稳定错误码的映射。
+ *
+ * 400 保持 `WEB_PROVIDER_ERROR`：reasoning 参数降级重试依赖这个 code 加措辞判断
+ * （见 {@link rejectsReasoningKnob}），改成更细的 code 会让降级静默失效。
+ *
+ * @param status - 响应的 HTTP 状态码。
+ * @returns 观测与工具层可见的错误码。
+ */
+export function httpErrorCode(status: number): string {
+	if (status === 400) return "WEB_PROVIDER_ERROR";
+	if (status === 401 || status === 403) return "WEB_PROVIDER_AUTH";
+	if (status === 429) return "WEB_PROVIDER_RATE_LIMIT";
+	if (status === 408 || status === 504) return "WEB_PROVIDER_TIMEOUT";
+	if (status >= 500 && status <= 599) return "WEB_PROVIDER_SERVER";
+	if (status >= 400 && status <= 499) return "WEB_PROVIDER_REQUEST";
+	return "WEB_PROVIDER_ERROR";
+}
+
+/**
  * POST 一个 JSON 请求体并返回解析后的响应，把传输与 HTTP 层失败映射到稳定的错误码。
  *
  * @param endpoint - 完整请求 URL。
@@ -188,7 +207,7 @@ export async function postJson(endpoint: string, apiKey: string, body: Record<st
 		});
 	} catch (error) {
 		if (signal?.aborted === true || isAbortError(error)) throw searchAborted(signal, error);
-		throw new WebError(`web search request failed: ${String(error)}`, "WEB_PROVIDER_ERROR", { cause: error });
+		throw new WebError(`web search request failed: ${String(error)}`, "WEB_PROVIDER_NETWORK", { cause: error });
 	}
 	if (!response.ok) {
 		const status = `web search API error (HTTP ${response.status})`;
@@ -201,7 +220,7 @@ export async function postJson(endpoint: string, apiKey: string, body: Record<st
 		} catch (error) {
 			if (signal?.aborted === true || isAbortError(error)) throw searchAborted(signal, error);
 		}
-		throw new WebError(message, "WEB_PROVIDER_ERROR");
+		throw new WebError(message, httpErrorCode(response.status));
 	}
 	try {
 		return await readJsonResponse(response);

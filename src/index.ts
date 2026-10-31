@@ -13,9 +13,12 @@
  * @module dsh-web-search-diy
  */
 import type { Context } from "@deepseek-ai/cordis";
+import type {} from "@deepseek-ai/dsh-agent";
 import { DEFAULT_TARGET, type TargetId } from "./catalog.ts";
 import { readConfigDocument, selectDefaultTarget } from "./config.ts";
 import { registerConfigEndpoint, type WebServerLike } from "./endpoint.ts";
+import { registerObservabilityEndpoints } from "./observability/endpoint.ts";
+import { ObservationStore } from "./observability/store.ts";
 import { resolveCurrentOptions } from "./options.ts";
 import { DiySearchProvider } from "./provider.ts";
 
@@ -37,9 +40,23 @@ export function apply(ctx: Context): void {
 	selectDefaultTarget(ctx, readConfigDocument()).then((target) => {
 		fallback = target;
 	}, () => void 0);
+	/**
+	 * 观测库打不开（`node:sqlite` 缺失、目录不可写、文件损坏）时整层禁用：
+	 * 搜索照常注册，只是不产生记录。
+	 */
+	/** 测试替身不提供 logger；诊断输出保持可选。 */
+	const warn = (message: string): void => {
+		ctx.logger?.warn?.(message);
+	};
+	const store = ObservationStore.open({ warn });
+	if (store !== void 0) ctx.effect(() => () => store.close(), `${name}: observability store`);
 	ctx.web.registerSearchProvider(new DiySearchProvider(
 		() => resolveCurrentOptions(ctx, fallback),
-		(message) => ctx.logger.warn(message)
+		{
+			warn,
+			...(store !== void 0 ? { onOutcome: (outcome) => store.record(outcome) } : {}),
+			sessionId: () => ctx.get("agents")?.currentInitiator()?.session.id
+		}
 	));
 	// The config endpoint rides the webServer service when it appears (web
 	// profiles). Non-web compositions never provide webServer, so the inject
@@ -52,7 +69,16 @@ export function apply(ctx: Context): void {
 		 * replacement server is provided — otherwise the same paths are registered
 		 * twice and the old ones linger.
 		 */
-		sctx.effect(() => registerConfigEndpoint(ctx, (sctx as unknown as { webServer: WebServerLike }).webServer), `${name}: config route`);
+		sctx.effect(() => {
+			const webServer = (sctx as unknown as { webServer: WebServerLike }).webServer;
+			const disposeConfig = registerConfigEndpoint(ctx, webServer, store !== void 0 ? (outcome) => store.record(outcome) : void 0);
+			const disposeObservability = store !== void 0 ? registerObservabilityEndpoints(store, webServer) : () => {};
+			return () => {
+				/** 撤销顺序与注册相反，便于诊断时按日志倒推。 */
+				disposeObservability();
+				disposeConfig();
+			};
+		}, `${name}: web routes`);
 	});
 }
 
@@ -88,11 +114,25 @@ export {
 	saveConfig,
 	selectDefaultTarget
 } from "./config.ts";
+export { registerConfigEndpoint, readJsonBody, sendJson } from "./endpoint.ts";
 export { DEFAULT_API_VERSION, resolveCurrentOptions, resolveOptions, selectedTargetOf } from "./options.ts";
-export { USER_AGENT } from "./transport.ts";
+export { USER_AGENT, httpErrorCode } from "./transport.ts";
+export { ObservationStore } from "./observability/store.ts";
+export { openObservationDatabase, observationDatabasePath, retain, SCHEMA_VERSION } from "./observability/schema.ts";
+export { registerObservabilityEndpoints } from "./observability/endpoint.ts";
+export { percentile, resolveRange, summarize } from "./observability/aggregate.ts";
 export { DiySearchProvider, OpenAiSearchProvider, PROVIDER_ID } from "./provider.ts";
 export { mapAnthropicResponse } from "./protocols/anthropic.ts";
 export { mapChatAnnotationsResponse, mapQwenChatResponse, mapZhipuChatResponse } from "./protocols/chat.ts";
 export { mapResponsesResponse } from "./protocols/responses.ts";
 export { mapStandaloneResponse, mapZhipuWebSearchResponse, TEMPLATES } from "./protocols/search.ts";
 export type { RecordedSearchRequest, ResolvedSettings, SearchOptions } from "./types.ts";
+export type {
+	ExportFormat,
+	ObservationKind,
+	ObservationRecord,
+	ObservationSource,
+	ObservabilitySummary,
+	RecordsQuery,
+	SearchOutcome
+} from "./observability/types.ts";

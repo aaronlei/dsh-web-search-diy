@@ -35,6 +35,8 @@ export type SourceQuality = "full" | "partial" | "none";
 export interface TargetOptions {
 	baseURL?: string;
 	apiKeyEnv?: string;
+	/** 单次搜索的本地超时（毫秒）；超时以 `WEB_PROVIDER_TIMEOUT` 失败。 */
+	requestTimeoutMs?: number;
 	model?: string;
 	maxOutputTokens?: number;
 	toolType?: string;
@@ -151,7 +153,7 @@ export interface Capability {
 }
 
 /** 通用连接与模型字段，几乎每个 target 都有。 */
-const CONNECTION: readonly FieldKey[] = ["baseURL", "apiKeyEnv"];
+const CONNECTION: readonly FieldKey[] = ["baseURL", "apiKeyEnv", "requestTimeoutMs"];
 
 /** 有模型回合的 target 通用字段。 */
 const MODEL: readonly FieldKey[] = ["model", "maxOutputTokens"];

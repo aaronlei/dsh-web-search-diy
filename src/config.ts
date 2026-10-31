@@ -51,6 +51,7 @@ const FIELD_SPECS: Record<FieldKey, FieldSpec> = {
 	baseURL: { kind: "string" },
 	/** 引用名要能被凭据服务接受，否则每次搜索都会在 `credentialRef()` 处抛错。 */
 	apiKeyEnv: { kind: "refName" },
+	requestTimeoutMs: { kind: "positiveInt" },
 	model: { kind: "string" },
 	maxOutputTokens: { kind: "positiveInt" },
 	toolType: { kind: "string" },

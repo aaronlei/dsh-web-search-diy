@@ -9,8 +9,38 @@ import { searchAnthropicMessages } from "./protocols/anthropic.ts";
 import { searchChatCompletions } from "./protocols/chat.ts";
 import { searchResponses } from "./protocols/responses.ts";
 import { searchStandalone } from "./protocols/search.ts";
+import type { ObservationKind, SearchOutcome } from "./observability/types.ts";
 import { abortable, isAbortError, searchAborted, throwIfSearchAborted } from "./transport.ts";
 import type { SearchOptions } from "./types.ts";
+
+/** 观测 sink；实现方保证不抛错、不影响搜索返回值。 */
+export type OutcomeListener = (outcome: SearchOutcome) => void;
+
+/** provider 的非搜索职责：诊断、观测与记录类型。 */
+export interface DiySearchProviderOptions {
+	/** 就绪检查失败时的诊断出口；无头组合不传时保持静默。 */
+	readonly warn?: (message: string) => void;
+	/** 观测采集出口；未启用观测时省略。 */
+	readonly onOutcome?: OutcomeListener;
+	/** 当前会话 id 来源，用于把记录关联回会话。 */
+	readonly sessionId?: () => string | undefined;
+	/** 记录类型；配置页测试连接传 `test`，默认 `search`。 */
+	readonly kind?: ObservationKind;
+}
+
+/** `AbortSignal.timeout` 接受的上限（2^31-1 毫秒）。 */
+const MAX_TIMEOUT_MS = 2_147_483_647;
+
+/** 把配置值收窄成可用的超时；非法值回落到默认 25 秒。 */
+function timeoutOf(value: number): number {
+	return Number.isSafeInteger(value) && value > 0 ? Math.min(value, MAX_TIMEOUT_MS) : 25_000;
+}
+
+/** 失败原因的可观测形态；非 `WebError` 统一按 provider 错误归类。 */
+function failureOf(error: unknown): { code: string; message: string } {
+	const code = error instanceof WebError ? error.code : "WEB_PROVIDER_ERROR";
+	return { code, message: error instanceof Error ? error.message : String(error) };
+}
 
 /** Stable id this provider registers under on the seam. */
 export const PROVIDER_ID = "diy-search";
@@ -29,14 +59,23 @@ export class DiySearchProvider implements WebSearchProvider {
 	private readonly resolveOptions: () => SearchOptions;
 	/** 就绪检查失败时的诊断出口；无头组合不传时保持静默。 */
 	private readonly warn: ((message: string) => void) | undefined;
+	/** 搜索引擎的会话 id 来源；无头组合或 HTTP 测试路径不传。 */
+	private readonly sessionId: (() => string | undefined) | undefined;
+	/** 观测采集出口；未启用观测时保持 undefined，搜索路径完全不触碰存储。 */
+	private readonly onOutcome: OutcomeListener | undefined;
+	/** 报告给观测层的记录类型。 */
+	private readonly kind: ObservationKind;
 
 	/**
 	 * @param resolveOptions - 下一次操作的选项，在每个操作入口处快照一次。
-	 * @param warn - 就绪检查异常时的诊断出口。
+	 * @param options - 诊断、观测与记录类型。
 	 */
-	constructor(resolveOptions: () => SearchOptions, warn?: (message: string) => void) {
+	constructor(resolveOptions: () => SearchOptions, options: DiySearchProviderOptions = {}) {
 		this.resolveOptions = resolveOptions;
-		this.warn = warn;
+		this.warn = options.warn;
+		this.onOutcome = options.onOutcome;
+		this.sessionId = options.sessionId;
+		this.kind = options.kind ?? "search";
 	}
 
 	/** 本地廉价可用性检查：target 可选、端点合法、必填项齐全。 */
@@ -87,6 +126,79 @@ export class DiySearchProvider implements WebSearchProvider {
 	 */
 	async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult> {
 		const options = this.resolveOptions();
+		const started = Date.now();
+		const startedAt = new Date(started).toISOString();
+		const timeoutMs = timeoutOf(options.settings.requestTimeoutMs);
+		const sessionId = this.currentSessionId();
+		/**
+		 * 本地超时与调用方取消合并：两者都要立刻中断请求，但错误码不同。用
+		 * `started` 时刻的时间戳判断哪个信号先触发，调用方取消优先。
+		 */
+		const localTimeout = AbortSignal.timeout(timeoutMs);
+		const combined = signal === void 0 ? localTimeout : AbortSignal.any([signal, localTimeout]);
+		try {
+			const result = await this.runSearch(options, request, combined);
+			this.report({
+				kind: this.kind,
+				target: options.capability.id,
+				vendor: options.capability.vendor,
+				protocol: options.capability.protocol,
+				...(sessionId !== void 0 ? { sessionId } : {}),
+				query: request.query,
+				startedAt,
+				durationMs: Date.now() - started,
+				ok: true,
+				result
+			});
+			return result;
+		} catch (error) {
+			const timedOut = localTimeout.aborted && signal?.aborted !== true;
+			const failure = timedOut
+				? new WebError(`web search timed out after ${timeoutMs}ms`, "WEB_PROVIDER_TIMEOUT", { cause: error })
+				: error;
+			const { code, message } = failureOf(failure);
+			this.report({
+				kind: this.kind,
+				target: options.capability.id,
+				vendor: options.capability.vendor,
+				protocol: options.capability.protocol,
+				...(sessionId !== void 0 ? { sessionId } : {}),
+				query: request.query,
+				startedAt,
+				durationMs: Date.now() - started,
+				ok: false,
+				errorCode: code,
+				errorMessage: message
+			});
+			throw failure;
+		}
+	}
+
+	/** 读取当前会话 id；读取失败不能影响搜索本身。 */
+	private currentSessionId(): string | undefined {
+		try {
+			return this.sessionId?.();
+		} catch {
+			return void 0;
+		}
+	}
+
+	/**
+	 * 报告一次结果。
+	 *
+	 * sink 理论上已自行隔离异常；这里再兜一层，保证任何采集实现都不会把一次
+	 * 成功的搜索变成失败。
+	 */
+	private report(outcome: SearchOutcome): void {
+		try {
+			this.onOutcome?.(outcome);
+		} catch {
+			// 观测是附加项，失败不能影响搜索返回值。
+		}
+	}
+
+	/** 按协议分派一次搜索；不含超时组合与观测。 */
+	private async runSearch(options: SearchOptions, request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult> {
 		if (options.capability.support === "unsupported") {
 			throw new WebError(`target ${options.capability.id} is not supported: ${options.capability.reason ?? "no reason recorded"}`, "WEB_PROVIDER_ERROR");
 		}
