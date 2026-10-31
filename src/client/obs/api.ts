@@ -5,7 +5,8 @@
  *
  * @module dsh-web-search-diy/client/obs/api
  */
-import type { Filters, RecordsResponse, StatusKey, SummaryResponse } from "./types.ts";
+import type { Filters, RecordsResponse, StatusKey, SummaryResponse, TimeRange } from "./types.ts";
+import { sinceOf, untilOf } from "./range.ts";
 
 /** Host 观测端点前缀。 */
 const OBS_BASE = "/api/web-search-diy/observability";
@@ -13,7 +14,9 @@ const OBS_BASE = "/api/web-search-diy/observability";
 /** 把筛选状态转成查询串。 */
 function queryOf(filters: Filters, extra: Record<string, string | undefined> = {}): string {
 	const params = new URLSearchParams();
-	params.set("since", filters.range);
+	params.set("since", sinceOf(filters.range));
+	const until = untilOf(filters.range);
+	if (until !== void 0) params.set("until", until);
 	if (filters.target.length > 0) params.set("target", filters.target);
 	if (filters.includeTests) params.set("includeTests", "true");
 	for (const [key, value] of Object.entries(extra)) {
@@ -43,15 +46,15 @@ export async function fetchSummary(filters: Filters, signal?: AbortSignal): Prom
 	return await readJson<SummaryResponse>(response);
 }
 
-/** 拉取一页记录；`before` 为上一页的 `nextBefore`。 */
+/** 拉取一页记录；页码从 1 开始。 */
 export async function fetchRecords(
 	filters: Filters,
-	options: { readonly limit?: number; readonly before?: string; readonly status?: StatusKey; readonly query?: string } = {},
+	options: { readonly limit?: number; readonly page?: number; readonly status?: StatusKey; readonly query?: string } = {},
 	signal?: AbortSignal
 ): Promise<RecordsResponse> {
 	const extra: Record<string, string | undefined> = {
 		limit: String(options.limit ?? 50),
-		before: options.before,
+		page: options.page === void 0 ? void 0 : String(options.page),
 		status: options.status === void 0 || options.status === "all" ? void 0 : options.status,
 		query: options.query
 	};
@@ -62,6 +65,28 @@ export async function fetchRecords(
 /** 导出链接：直接交给浏览器下载当前筛选范围。 */
 export function exportUrl(format: "jsonl" | "csv", filters: Filters): string {
 	return `${OBS_BASE}/export?${queryOf(filters, { format })}`;
+}
+
+/** 导入历史会话里的 web_search 记录。 */
+export interface ImportResult {
+	readonly sessions: number;
+	readonly calls: number;
+	readonly imported: number;
+	readonly skipped: number;
+	readonly failed: number;
+	readonly filtered: number;
+	readonly identified: number;
+	readonly updated: number;
+}
+
+export async function importHistory(range: TimeRange): Promise<ImportResult> {
+	const until = untilOf(range);
+	const response = await fetch(`${OBS_BASE}/import`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ since: sinceOf(range), ...(until !== void 0 ? { until } : {}) })
+	});
+	return await readJson<ImportResult>(response);
 }
 
 /** 清空全部观测记录；返回删除条数。 */

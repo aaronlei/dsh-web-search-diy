@@ -6,17 +6,18 @@
  *
  * @module dsh-web-search-diy/observability/store
  */
-import { createHash, randomUUID } from "node:crypto";
-import type { WebSearchSource } from "@deepseek-ai/dsh-web";
+import { randomUUID } from "node:crypto";
 import { rangeFilter, summarize, type ObservationRow } from "./aggregate.ts";
 import { contentTypeOf, exportFileName, serialize } from "./export.ts";
 import { openObservationDatabase } from "./schema.ts";
+import { factsOfSources } from "./sources.ts";
 import type {
 	ExportQuery,
 	ObservabilitySummary,
 	ObservationRecord,
 	ObservationRecordView,
 	ObservationSource,
+	ObservationSourceFacts,
 	RangeQuery,
 	RecordsPage,
 	RecordsQuery,
@@ -27,6 +28,8 @@ import type {
 const QUERY_MAX_CHARS = 200;
 /** 失败消息入库上限。 */
 const ERROR_MAX_CHARS = 300;
+/** 答案文本入库上限。 */
+const ANSWER_MAX_CHARS = 4_000;
 /** 明细分页默认与上限。 */
 const DEFAULT_RECORD_LIMIT = 50;
 const MAX_RECORD_LIMIT = 500;
@@ -39,11 +42,11 @@ const SUMMARY_CACHE_MS = 2000;
 const ROW_COLUMNS = [
 	"id", "at", "kind", "session_id", "target", "vendor", "protocol", "query", "ok",
 	"error_code", "error_message", "duration_ms", "source_count", "with_title", "with_snippet",
-	"with_summary", "summary_chars", "answer_chars", "truncated"
+	"with_summary", "summary_chars", "answer_chars", "truncated", "answer"
 ].join(", ");
 
-const INSERT_OBSERVATION = `INSERT INTO observations (${ROW_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
-const INSERT_SOURCE = "INSERT INTO observation_sources (observation_id, url_hash, host, has_title, has_snippet, has_summary) VALUES (?, ?, ?, ?, ?, ?)";
+const INSERT_OBSERVATION = `INSERT OR IGNORE INTO observations (${ROW_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+const INSERT_SOURCE = "INSERT OR IGNORE INTO observation_sources (observation_id, url_hash, host, has_title, has_snippet, has_summary, url, title, snippet, summary) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
 /** 打开观测库的方式。 */
 export interface ObservationStoreOptions {
@@ -61,54 +64,35 @@ function clip(text: string, max: number): string {
 	return characters.length <= max ? text : characters.slice(0, max).join("");
 }
 
-/** URL 的 SHA-256 前 16 位十六进制。 */
-function hashOf(url: string): string {
-	return createHash("sha256").update(url).digest("hex").slice(0, 16);
-}
-
-/** 解析主机名；非法 URL 记为空串（来源已由协议层规范化）。 */
-function hostOf(url: string): string {
-	try {
-		return new URL(url).hostname;
-	} catch {
-		return "";
-	}
-}
-
-/** 把来源归一化成入库明细，按 urlHash 去重。 */
-function sourcesOf(observationId: string, list: readonly WebSearchSource[]): ObservationSource[] {
-	const seen = new Set<string>();
-	const sources: ObservationSource[] = [];
-	for (const source of list) {
-		const urlHash = hashOf(source.url);
-		if (seen.has(urlHash)) continue;
-		seen.add(urlHash);
-		sources.push({
-			observationId,
-			urlHash,
-			host: hostOf(source.url),
-			hasTitle: source.title !== void 0 && source.title.length > 0,
-			hasSnippet: source.snippet !== void 0 && source.snippet.length > 0,
-			hasSummary: source.summary !== void 0 && source.summary.length > 0
-		});
-	}
-	return sources;
+/** 从已归一化的来源事实派生入库明细。 */
+function sourcesOf(observationId: string, facts: readonly ObservationSourceFacts[]): ObservationSource[] {
+	return facts.map((fact) => ({
+		observationId,
+		urlHash: fact.urlHash,
+		host: fact.host,
+		hasTitle: fact.hasTitle,
+		hasSnippet: fact.hasSnippet,
+		hasSummary: fact.hasSummary,
+		...(fact.url !== void 0 ? { url: fact.url } : {}),
+		...(fact.title !== void 0 ? { title: fact.title } : {}),
+		...(fact.snippet !== void 0 ? { snippet: fact.snippet } : {}),
+		...(fact.summary !== void 0 ? { summary: fact.summary } : {})
+	}));
 }
 
 /** 从原始结果派生一条可写入的记录。 */
-function recordOf(outcome: SearchOutcome, id: string, sourceCount: number): ObservationRecord {
-	const sources = outcome.result?.sources ?? [];
+function recordOf(outcome: SearchOutcome, id: string, facts: readonly ObservationSourceFacts[]): ObservationRecord {
+	const content = outcome.result?.content ?? "";
+	const answer = content.length > 0 ? clip(content, ANSWER_MAX_CHARS) : void 0;
 	let withTitle = 0;
 	let withSnippet = 0;
 	let withSummary = 0;
 	let summaryChars = 0;
-	for (const source of sources) {
-		if (source.title !== void 0 && source.title.length > 0) withTitle += 1;
-		if (source.snippet !== void 0 && source.snippet.length > 0) withSnippet += 1;
-		if (source.summary !== void 0 && source.summary.length > 0) {
-			withSummary += 1;
-			summaryChars += [...source.summary].length;
-		}
+	for (const fact of facts) {
+		if (fact.hasTitle) withTitle += 1;
+		if (fact.hasSnippet) withSnippet += 1;
+		if (fact.hasSummary) withSummary += 1;
+		summaryChars += fact.summaryChars;
 	}
 	return {
 		v: 1,
@@ -124,13 +108,14 @@ function recordOf(outcome: SearchOutcome, id: string, sourceCount: number): Obse
 		...(outcome.errorCode !== void 0 ? { errorCode: outcome.errorCode } : {}),
 		...(outcome.errorMessage !== void 0 ? { errorMessage: clip(outcome.errorMessage, ERROR_MAX_CHARS) } : {}),
 		durationMs: Math.max(0, Math.round(outcome.durationMs)),
-		sourceCount,
+		sourceCount: facts.length,
 		withTitle,
 		withSnippet,
 		withSummary,
 		summaryChars,
 		answerChars: [...(outcome.result?.content ?? "")].length,
-		truncated: outcome.result?.truncated === true
+		truncated: outcome.result?.truncated === true,
+		...(answer !== void 0 ? { answer } : {})
 	};
 }
 
@@ -156,19 +141,29 @@ function recordFromRow(row: ObservationRow): ObservationRecord {
 		withSummary: row.with_summary,
 		summaryChars: row.summary_chars,
 		answerChars: row.answer_chars,
-		truncated: row.truncated === 1
+		truncated: row.truncated === 1,
+		...(typeof row.answer === "string" && row.answer.length > 0 ? { answer: row.answer } : {})
 	};
 }
 
 /** 来源行 → API 明细。 */
 function sourceFromRow(row: Record<string, unknown>): ObservationSource {
+	const text = (value: unknown): string | undefined => typeof value === "string" && value.length > 0 ? value : void 0;
+	const url = text(row.url);
+	const title = text(row.title);
+	const snippet = text(row.snippet);
+	const summary = text(row.summary);
 	return {
 		observationId: String(row.observation_id),
 		urlHash: String(row.url_hash),
 		host: String(row.host),
 		hasTitle: row.has_title === 1,
 		hasSnippet: row.has_snippet === 1,
-		hasSummary: row.has_summary === 1
+		hasSummary: row.has_summary === 1,
+		...(url !== void 0 ? { url } : {}),
+		...(title !== void 0 ? { title } : {}),
+		...(snippet !== void 0 ? { snippet } : {}),
+		...(summary !== void 0 ? { summary } : {})
 	};
 }
 
@@ -212,35 +207,60 @@ export class ObservationStore {
 		}
 	}
 
-	/** 写一条记录；失败只告警一次，永不抛出。 */
-	record(outcome: SearchOutcome): void {
+	/**
+	 * 写一条记录；失败只告警一次，永不抛出。
+	 *
+	 * @param outcome - 记录事实。
+	 * @param id - 记录 id；历史导入传入确定性 id。
+	 * @returns 新写入、已存在或仅补全 target 的更新。
+	 */
+	record(outcome: SearchOutcome, id: string = randomUUID()): "inserted" | "existing" | "updated" {
 		try {
-			this.insert(outcome);
-			this.summaryCache = void 0;
+			const status = this.insert(outcome, id);
+			if (status !== "existing") this.summaryCache = void 0;
+			return status;
 		} catch (error) {
 			this.warnOnce(`observation write failed: ${describe(error)}`);
+			return "existing";
 		}
 	}
 
-	/** 一条观测与其来源明细在同一事务内写入。 */
-	private insert(outcome: SearchOutcome): void {
-		const id = randomUUID();
-		const sources = sourcesOf(id, outcome.result?.sources ?? []);
-		const record = recordOf(outcome, id, sources.length);
+	/** 一条观测与其来源明细在同一事务内写入；重复主键时尝试补全历史记录的 target。 */
+	private insert(outcome: SearchOutcome, id: string): "inserted" | "existing" | "updated" {
+		const facts = outcome.sources ?? factsOfSources(outcome.result?.sources ?? []);
+		const sources = sourcesOf(id, facts);
+		const record = recordOf(outcome, id, facts);
 		this.db.exec("BEGIN IMMEDIATE");
 		try {
-			this.db.prepare(INSERT_OBSERVATION).run(
+			const { changes } = this.db.prepare(INSERT_OBSERVATION).run(
 				record.id, record.at, record.kind, record.sessionId ?? null, record.target, record.vendor,
 				record.protocol, record.query, record.ok ? 1 : 0, record.errorCode ?? null,
 				record.errorMessage ?? null, record.durationMs, record.sourceCount, record.withTitle,
 				record.withSnippet, record.withSummary, record.summaryChars, record.answerChars,
-				record.truncated ? 1 : 0
+				record.truncated ? 1 : 0, record.answer ?? null
 			);
+			if (Number(changes) === 0) {
+				/** 旧版本导入的历史记录可能只有 `historical`；新解析出的 target 用来补全它。 */
+				const updated = outcome.target !== "historical"
+					? this.db.prepare("UPDATE observations SET target = ?, vendor = ?, protocol = ? WHERE id = ? AND target = 'historical'").run(outcome.target, outcome.vendor, outcome.protocol, id)
+					: { changes: 0 };
+				if (Number(updated.changes) > 0) {
+					this.db.exec("COMMIT");
+					return "updated";
+				}
+				this.db.exec("ROLLBACK");
+				return "existing";
+			}
 			const insertSource = this.db.prepare(INSERT_SOURCE);
 			for (const source of sources) {
-				insertSource.run(source.observationId, source.urlHash, source.host, source.hasTitle ? 1 : 0, source.hasSnippet ? 1 : 0, source.hasSummary ? 1 : 0);
+				insertSource.run(
+					source.observationId, source.urlHash, source.host,
+					source.hasTitle ? 1 : 0, source.hasSnippet ? 1 : 0, source.hasSummary ? 1 : 0,
+					source.url ?? null, source.title ?? null, source.snippet ?? null, source.summary ?? null
+				);
 			}
 			this.db.exec("COMMIT");
+			return "inserted";
 		} catch (error) {
 			try {
 				this.db.exec("ROLLBACK");
@@ -260,7 +280,7 @@ export class ObservationStore {
 	 */
 	summary(query: RangeQuery): ObservabilitySummary {
 		/** 缓存键只用原始参数：计算后的时间边界每次都不同，用它会让缓存永不命中。 */
-		const key = `${query.since ?? ""}|${query.target ?? ""}|${query.includeTests === true}`;
+		const key = `${query.since ?? ""}|${query.until ?? ""}|${query.target ?? ""}|${query.includeTests === true}`;
 		const cached = this.summaryCache;
 		if (cached !== void 0 && cached.key === key && this.now() - cached.at < SUMMARY_CACHE_MS) return cached.value;
 		const filter = rangeFilter(query, this.now());
@@ -270,10 +290,10 @@ export class ObservationStore {
 	}
 
 	/**
-	 * 明细分页：时间倒序，多取一条判断是否还有更早记录。
+	 * 明细分页：时间倒序，按页码取一页并返回筛选后的总数。
 	 *
 	 * @param query - 筛选与分页参数。
-	 * @returns 当前页与下一页游标。
+	 * @returns 当前页、总数与实际页码。
 	 */
 	records(query: RecordsQuery): RecordsPage {
 		const filter = rangeFilter(query, this.now());
@@ -285,17 +305,15 @@ export class ObservationStore {
 			clauses.push("instr(lower(query), lower(?)) > 0");
 			params.push(query.query);
 		}
-		if (query.before !== void 0 && query.before.length > 0) {
-			clauses.push("at < ?");
-			params.push(query.before);
-		}
-		const limit = limitOf(query.limit);
-		const rows = this.rowsWhere(clauses, params, "DESC", limit + 1);
-		const hasMore = rows.length > limit;
-		const page = hasMore ? rows.slice(0, limit) : rows;
-		const sources = this.sourcesOfIds(page.map((row) => row.id));
-		const records: ObservationRecordView[] = page.map((row) => ({ ...recordFromRow(row), sources: sources.get(row.id) ?? [] }));
-		return { records, nextBefore: hasMore && page.length > 0 ? page[page.length - 1].at : null };
+		const pageSize = limitOf(query.limit);
+		const total = this.countWhere(clauses, params);
+		const lastPage = Math.max(1, Math.ceil(total / pageSize));
+		const requested = typeof query.page === "number" && Number.isSafeInteger(query.page) ? query.page : 1;
+		const page = Math.min(Math.max(requested, 1), lastPage);
+		const rows = this.rowsWhere(clauses, params, "DESC", pageSize, (page - 1) * pageSize);
+		const sources = this.sourcesOfIds(rows.map((row) => row.id));
+		const records: ObservationRecordView[] = rows.map((row) => ({ ...recordFromRow(row), sources: sources.get(row.id) ?? [] }));
+		return { records, total, page, pageSize };
 	}
 
 	/**
@@ -339,13 +357,20 @@ export class ObservationStore {
 		this.warn?.(message);
 	}
 
-	/** 按条件读取观测行；`limit` 为 0 表示不限制。 */
-	private rowsWhere(clauses: readonly string[], params: readonly unknown[], order: "ASC" | "DESC", limit: number): ObservationRow[] {
+	/** 按条件读取观测行；`limit` 为 0 表示不限制，`offset` 用于分页。 */
+	private rowsWhere(clauses: readonly string[], params: readonly unknown[], order: "ASC" | "DESC", limit: number, offset = 0): ObservationRow[] {
 		const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
-		const tail = limit > 0 ? " LIMIT ?" : "";
+		const tail = limit > 0 ? " LIMIT ? OFFSET ?" : "";
 		const sql = `SELECT ${ROW_COLUMNS} FROM observations ${where} ORDER BY at ${order}, id ${order}${tail}`;
-		const args = limit > 0 ? [...params, limit] : [...params];
+		const args = limit > 0 ? [...params, limit, offset] : [...params];
 		return this.db.prepare(sql).all(...args) as ObservationRow[];
+	}
+
+	/** 与 {@link rowsWhere} 相同的筛选条件，返回记录总数。 */
+	private countWhere(clauses: readonly string[], params: readonly unknown[]): number {
+		const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+		const row = this.db.prepare(`SELECT COUNT(*) AS total FROM observations ${where}`).get(...params) as { total?: number } | undefined;
+		return Number(row?.total ?? 0);
 	}
 
 	/** 一次查询取回一页记录的全部来源明细，按 observation_id 分组。 */
@@ -353,7 +378,7 @@ export class ObservationStore {
 		const grouped = new Map<string, ObservationSource[]>();
 		if (ids.length === 0) return grouped;
 		const placeholders = ids.map(() => "?").join(", ");
-		const rows = this.db.prepare(`SELECT observation_id, url_hash, host, has_title, has_snippet, has_summary FROM observation_sources WHERE observation_id IN (${placeholders}) ORDER BY rowid`).all(...ids) as Record<string, unknown>[];
+		const rows = this.db.prepare(`SELECT observation_id, url_hash, host, has_title, has_snippet, has_summary, url, title, snippet, summary FROM observation_sources WHERE observation_id IN (${placeholders}) ORDER BY rowid`).all(...ids) as Record<string, unknown>[];
 		for (const row of rows) {
 			const source = sourceFromRow(row);
 			const list = grouped.get(source.observationId);

@@ -213,7 +213,9 @@ export async function searchResponses(options: SearchOptions, apiKey: string, re
 		/** 只在显式设置时发送；未实现该参数的网关可能直接拒绝未知字段。 */
 		...(settings.reasoningEffort.length > 0 ? { reasoning: { effort: settings.reasoningEffort } } : {})
 	};
-	const data = await postWithReasoningFallback(endpoint, apiKey, body, signal).catch((error: unknown) => {
+	const data = await postWithReasoningFallback(endpoint, apiKey, body, signal, void 0, (sent) => {
+		options.recordRequest?.({ endpoint, target: options.target, body: sent });
+	}).catch((error: unknown) => {
 		if (error instanceof WebError && /\b404\b/u.test(error.message)) {
 			throw new WebError(`${error.message} — this endpoint exposes no Responses path; point ${capability.id} at a gateway that really implements the Responses API${capability.docs !== void 0 ? ` (docs: ${capability.docs})` : ""}, or switch to another target`, "WEB_PROVIDER_ERROR", { cause: error });
 		}

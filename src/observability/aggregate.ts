@@ -29,38 +29,85 @@ export interface ObservationRow {
 	readonly summary_chars: number;
 	readonly answer_chars: number;
 	readonly truncated: number;
+	readonly answer?: string | null;
 }
 
-/** 相对范围简写到毫秒。 */
-const RANGE_PRESETS: Readonly<Record<string, number>> = {
+/** 相对范围简写到毫秒（概览/记录使用）。 */
+const RELATIVE_PRESETS: Readonly<Record<string, number>> = {
 	"1h": 3_600_000,
 	"24h": 24 * 3_600_000,
 	"7d": 7 * 24 * 3_600_000,
 	"30d": 30 * 24 * 3_600_000
 };
 
-/** `all` 覆盖完整保留窗口（180 天）。 */
-const ALL_MS = 180 * 24 * 3_600_000;
+/** 自然范围（历史导入使用）。 */
+const NATURAL_PRESETS = new Set(["today", "week", "month", "quarter", "year", "all"]);
+
+/** 本地时区的某天 00:00。 */
+function startOfDay(date: Date): number {
+	return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+}
+
+/** 预设范围的起点；未知预设返回 undefined。 */
+function presetStart(value: string, now: number): number | undefined {
+	const date = new Date(now);
+	switch (value) {
+		case "today": return startOfDay(date);
+		case "week": {
+			/** 周一为一周起点（中文习惯）。 */
+			const offset = date.getDay() === 0 ? 6 : date.getDay() - 1;
+			return new Date(date.getFullYear(), date.getMonth(), date.getDate() - offset).getTime();
+		}
+		case "month": return new Date(date.getFullYear(), date.getMonth(), 1).getTime();
+		case "quarter": return new Date(date.getFullYear(), Math.floor(date.getMonth() / 3) * 3, 1).getTime();
+		case "year": return new Date(date.getFullYear(), 0, 1).getTime();
+		case "all": return 0;
+		default: return void 0;
+	}
+}
 
 /** 趋势桶上限；超过时只返回有数据的桶，避免大跨度生成上千个空桶。 */
 const MAX_BUCKETS = 400;
 
 /**
- * 解析 `since` 为时间范围。
+ * 解析 `since` 与可选的 `until` 为时间范围。
  *
- * @param value - 相对范围（`24h` / `7d` / `30d` / `all`）、ISO-8601 时间或 undefined。
+ * `since` 接受自然范围与 ISO-8601；`until` 只接受 ISO-8601（自定义结束日由界面
+ * 转成结束日末尾的时间戳）。省略 `until` 表示到当前时间。
+ *
+ * @param value - 自然范围（`today` / `week` / `month` / `quarter` / `year` / `all`）、ISO-8601 时间或 undefined。
  * @param now - 当前时间（毫秒）。
+ * @param until - 结束时间的 ISO-8601 表示；省略表示现在。
  * @returns 起止毫秒。
- * @throws {RangeError} 无法解析时。
+ * @throws {RangeError} 任一边界无法解析，或结束早于开始时。
  */
-export function resolveRange(value: string | undefined, now: number): { sinceMs: number; untilMs: number } {
-	if (value === void 0 || value.length === 0) return { sinceMs: now - RANGE_PRESETS["24h"], untilMs: now };
-	const preset = RANGE_PRESETS[value];
-	if (preset !== void 0) return { sinceMs: now - preset, untilMs: now };
-	if (value === "all") return { sinceMs: now - ALL_MS, untilMs: now };
+export function resolveRange(value: string | undefined, now: number, until?: string): { sinceMs: number; untilMs: number } {
+	const sinceMs = resolveSince(value, now);
+	const untilMs = resolveUntil(until, now);
+	if (untilMs < sinceMs) throw new RangeError("结束时间必须晚于开始时间");
+	return { sinceMs, untilMs };
+}
+
+/** 解析起始边界；省略时回落到近 24 小时。 */
+function resolveSince(value: string | undefined, now: number): number {
+	if (value === void 0 || value.length === 0) return now - RELATIVE_PRESETS["24h"];
+	const relative = RELATIVE_PRESETS[value];
+	if (relative !== void 0) return now - relative;
+	if (NATURAL_PRESETS.has(value)) {
+		const start = presetStart(value, now);
+		if (start !== void 0) return start;
+	}
 	const parsed = Date.parse(value);
 	if (!Number.isFinite(parsed)) throw new RangeError(`无法解析的时间范围: ${value}`);
-	return { sinceMs: parsed, untilMs: now };
+	return parsed;
+}
+
+/** 解析结束边界；省略时回落到当前时间。 */
+function resolveUntil(value: string | undefined, now: number): number {
+	if (value === void 0 || value.length === 0) return now;
+	const parsed = Date.parse(value);
+	if (!Number.isFinite(parsed)) throw new RangeError(`无法解析的结束时间: ${value}`);
+	return parsed;
 }
 
 /**
@@ -123,7 +170,7 @@ function byTargetOf(rows: readonly ObservationRow[]): TargetSummary[] {
 		.sort((a, b) => b.count - a.count || a.target.localeCompare(b.target));
 }
 
-/** 时间桶步长：24h 内按小时，7 天内按 6 小时，60 天内按天，更长按周。 */
+/** 时间桶步长：一天内按小时，7 天内按 6 小时，60 天内按天，更长按周。 */
 function bucketStep(spanMs: number): number {
 	const HOUR = 3_600_000;
 	const DAY = 24 * HOUR;
@@ -232,9 +279,14 @@ export interface RangeFilter {
  * @throws {RangeError} `since` 无法解析时。
  */
 export function rangeFilter(query: RangeQuery, now: number): RangeFilter & { sinceMs: number; untilMs: number } {
-	const { sinceMs, untilMs } = resolveRange(query.since, now);
+	const { sinceMs, untilMs } = resolveRange(query.since, now, query.until);
 	const clauses: string[] = ["at >= ?"];
 	const params: unknown[] = [new Date(sinceMs).toISOString()];
+	/** 只有显式给了结束时间才加上界：默认「至今」不应排除时钟略晚于查询起点的记录。 */
+	if (query.until !== void 0 && query.until.length > 0) {
+		clauses.push("at <= ?");
+		params.push(new Date(untilMs).toISOString());
+	}
 	if (query.includeTests === true) clauses.push("kind IN ('search', 'test', 'compare')");
 	else clauses.push("kind = 'search'");
 	if (query.target !== void 0 && query.target.length > 0) {

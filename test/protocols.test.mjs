@@ -708,3 +708,35 @@ describe("endpoint and credential resolution", () => {
 		assert.equal(result.sources.length, 1);
 	});
 });
+
+describe("outbound request recording", () => {
+	/** Wrap options with a collector, mirroring how the plugin's session recorder is injected. */
+	function withRecorder(options) {
+		const requests = [];
+		return { requests, options: { ...options, recordRequest: (request) => { requests.push(request); } } };
+	}
+
+	it("records the responses request together with its target", async () => {
+		const { requests, options } = withRecorder(optionsFor("qwen/responses"));
+		await runSearch(options, [{ body: RESPONSES_BODY }]);
+		assert.equal(requests.length, 1);
+		assert.equal(requests[0].endpoint, "https://maas.qianwenaiapi.com/compatible-mode/v1/responses");
+		assert.equal(requests[0].target, "qwen/responses");
+	});
+
+	it("records the chat request together with its target", async () => {
+		const { requests, options } = withRecorder(optionsFor("zhipu/chat-completions"));
+		await runSearch(options, [{ body: ZHIPU_CHAT_BODY }]);
+		assert.equal(requests.length, 1);
+		assert.equal(requests[0].endpoint, "https://open.bigmodel.cn/api/paas/v4/chat/completions");
+		assert.equal(requests[0].target, "zhipu/chat-completions");
+	});
+
+	it("records the standalone search request together with its target", async () => {
+		const { requests, options } = withRecorder(optionsFor("zhipu/search"));
+		await runSearch(options, [{ body: ZHIPU_SEARCH_BODY }]);
+		assert.equal(requests.length, 1);
+		assert.equal(requests[0].endpoint, "https://open.bigmodel.cn/api/paas/v4/web_search");
+		assert.equal(requests[0].target, "zhipu/search");
+	});
+});

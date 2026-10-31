@@ -70,7 +70,6 @@ const FIELD_SPECS: Record<FieldKey, FieldSpec> = {
 	searchRecencyFilter: { kind: "enum", values: ["noLimit", "oneDay", "oneWeek", "oneMonth", "oneYear"] },
 	contentSize: { kind: "enum", values: ["medium", "high"] },
 	searchDomainFilter: { kind: "string" },
-	searchIntent: { kind: "boolean" },
 	requireSearch: { kind: "boolean" },
 	searchPrompt: { kind: "string" },
 	searchStrategy: { kind: "enum", values: ["turbo", "max", "agent", "agent_max"] },

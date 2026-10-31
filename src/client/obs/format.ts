@@ -34,6 +34,11 @@ export function timeOf(iso: string): string {
 	return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
+/** target 的展示名；历史导入记录没有 provider，显示为「历史记录」。 */
+export function targetLabelOf(t: (key: string) => string, target: string): string {
+	return target === "historical" ? t("obsHistoricalTarget") : target;
+}
+
 /** 搜索词的表格显示：折叠空白并按字符截断。 */
 export function queryOf(query: string, max = 48): string {
 	const collapsed = query.replace(/\s+/gu, " ").trim();

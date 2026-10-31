@@ -52,6 +52,10 @@ export interface ObservationSource {
 	readonly hasTitle: boolean;
 	readonly hasSnippet: boolean;
 	readonly hasSummary: boolean;
+	readonly url?: string;
+	readonly title?: string;
+	readonly snippet?: string;
+	readonly summary?: string;
 }
 
 /** 一条观测记录。 */
@@ -76,6 +80,7 @@ export interface ObservationRecord {
 	readonly summaryChars: number;
 	readonly answerChars: number;
 	readonly truncated: boolean;
+	readonly answer?: string;
 }
 
 /** 记录与来源明细。 */
@@ -86,18 +91,25 @@ export interface RecordView extends ObservationRecord {
 /** `GET /observability/records` 的响应。 */
 export interface RecordsResponse {
 	readonly records: readonly RecordView[];
-	readonly nextBefore: string | null;
+	/** 当前筛选条件下的记录总数。 */
+	readonly total: number;
+	/** 后端夹紧后的实际页码。 */
+	readonly page: number;
+	readonly pageSize: number;
 }
 
-/** 时间范围键。 */
-export type RangeKey = "24h" | "7d" | "30d" | "all";
+/** 预设时间范围键。 */
+export type RangePreset = "24h" | "7d" | "30d" | "all";
+
+/** 时间范围：预设，或自定义起止日；缺少 `until` 表示到当前时间。 */
+export type TimeRange = { readonly preset: RangePreset } | { readonly preset: "custom"; readonly since: string; readonly until?: string };
 
 /** 状态筛选。 */
 export type StatusKey = "all" | "ok" | "fail";
 
 /** 页面共享的筛选状态。 */
 export interface Filters {
-	readonly range: RangeKey;
+	readonly range: TimeRange;
 	readonly target: string;
 	readonly includeTests: boolean;
 }

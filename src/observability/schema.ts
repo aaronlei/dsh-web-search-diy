@@ -12,12 +12,9 @@ import { homedir } from "node:os";
 import type { DatabaseLike } from "./types.ts";
 
 /** 当前 schema 版本；写入 `PRAGMA user_version`。 */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
-/** 保留窗口：180 天。 */
-export const RETENTION_DAYS = 180;
-
-/** 保留条数上限：50,000 条。 */
+/** 保留条数上限：50,000 条；导入的历史记录同样受此上限约束。 */
 export const RETENTION_ROWS = 50_000;
 
 /** 数据库相对 `$DSH_HOME` 的位置。 */
@@ -70,6 +67,18 @@ CREATE TABLE IF NOT EXISTS observation_sources (
 CREATE INDEX IF NOT EXISTS idx_sources_hash ON observation_sources(url_hash);
 `;
 
+/**
+ * v2：记录页需要可读的答案与来源文本。观测库只在本机、权限 0600；这些列用于
+ * 直接阅读与 JSON 复制，旧记录的对应值为 NULL。
+ */
+const SCHEMA_V2 = `
+ALTER TABLE observations ADD COLUMN answer TEXT;
+ALTER TABLE observation_sources ADD COLUMN url TEXT;
+ALTER TABLE observation_sources ADD COLUMN title TEXT;
+ALTER TABLE observation_sources ADD COLUMN snippet TEXT;
+ALTER TABLE observation_sources ADD COLUMN summary TEXT;
+`;
+
 /** 读取当前 schema 版本。 */
 function readUserVersion(db: DatabaseLike): number {
 	try {
@@ -91,6 +100,7 @@ export function migrate(db: DatabaseLike): void {
 	db.exec("BEGIN IMMEDIATE");
 	try {
 		if (version < 1) db.exec(SCHEMA_V1);
+		if (version < 2) db.exec(SCHEMA_V2);
 		db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
 		db.exec("COMMIT");
 	} catch (error) {
@@ -104,17 +114,15 @@ export function migrate(db: DatabaseLike): void {
 }
 
 /**
- * 清理超出保留窗口或条数上限的记录；启动时执行一次，不自动 VACUUM。
+ * 只按条数上限清理：历史导入可能早于任何时间窗口，因此不按时间删除。
+ * 启动时执行一次，不自动 VACUUM。
  *
  * @param db - 已迁移的数据库连接。
- * @param now - 当前时间（毫秒），便于测试注入。
  * @returns 删除的观测条数。
  */
-export function retain(db: DatabaseLike, now: number = Date.now()): number {
-	const cutoff = new Date(now - RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
-	const expired = db.prepare("DELETE FROM observations WHERE at < ?").run(cutoff);
+export function retain(db: DatabaseLike): number {
 	const overflow = db.prepare("DELETE FROM observations WHERE id NOT IN (SELECT id FROM observations ORDER BY at DESC LIMIT ?)").run(RETENTION_ROWS);
-	return Number(expired.changes) + Number(overflow.changes);
+	return Number(overflow.changes);
 }
 
 /** 把数据库与 WAL 伴生文件收紧到 0600；失败不影响功能。 */

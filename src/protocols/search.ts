@@ -184,7 +184,6 @@ function buildBody(options: SearchOptions, query: string, maxResults: number | u
 		[queryKey]: searchQuery,
 		/** 智谱模板的 search_engine 是必填项：自定义网关留空时回落到 search_std，填了则用用户值。 */
 		search_engine: settings.searchEngine.length > 0 ? settings.searchEngine : "search_std",
-		search_intent: settings.searchIntent,
 		[countKey]: count,
 		search_recency_filter: settings.searchRecencyFilter,
 		content_size: settings.contentSize,
@@ -327,6 +326,7 @@ export function mapZhipuWebSearchResponse(data: unknown): WebSearchResult {
 export async function searchStandalone(options: SearchOptions, apiKey: string, request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult> {
 	const { id, template } = templateOf(options);
 	const body = buildBody(options, request.query, request.maxResults, id, template);
+	options.recordRequest?.({ endpoint: options.endpoint, target: options.target, body });
 	const data = await postJson(options.endpoint, apiKey, body, signal);
 	try {
 		return mapStandaloneResponse(data, template, { maxEntries: options.settings.digestEntries, maxSnippetChars: options.settings.digestSnippetChars });

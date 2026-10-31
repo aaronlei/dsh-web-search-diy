@@ -5,9 +5,10 @@
  */
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { zstdCompressSync } from "node:zlib";
 import { after, describe, it } from "node:test";
 import {
 	DiySearchProvider,
@@ -16,7 +17,8 @@ import {
 	registerConfigEndpoint,
 	registerObservabilityEndpoints,
 	resolveOptions,
-	resolveRange
+	resolveRange,
+	importHistorical
 } from "../lib/index.js";
 
 const HOUR = 3_600_000;
@@ -37,7 +39,11 @@ function outcome(overrides = {}) {
 		startedAt: new Date().toISOString(),
 		durationMs: 1000,
 		ok: true,
-		result: { sources: [{ url: "https://a.example/x", title: "A", snippet: "snip", summary: "long body" }], truncated: false },
+		result: {
+			content: "答案正文",
+			sources: [{ url: "https://a.example/x", title: "A", snippet: "snip", summary: "long body" }],
+			truncated: false
+		},
 		...overrides
 	};
 }
@@ -60,9 +66,14 @@ describe("observation store", () => {
 			assert.equal(page.records[0].withTitle, 1);
 			assert.equal(page.records[0].withSnippet, 1);
 			assert.equal(page.records[0].withSummary, 1);
-			assert.equal(page.records[0].answerChars, 0);
+			assert.equal(page.records[0].answerChars, 4);
+			assert.equal(page.records[0].answer, "答案正文", "the answer text is stored for the record page");
 			assert.equal(page.records[0].sources.length, 1);
 			assert.equal(page.records[0].sources[0].host, "a.example");
+			assert.equal(page.records[0].sources[0].url, "https://a.example/x");
+			assert.equal(page.records[0].sources[0].title, "A");
+			assert.equal(page.records[0].sources[0].snippet, "snip");
+			assert.equal(page.records[0].sources[0].summary, "long body");
 			assert.match(page.records[0].sources[0].urlHash, /^[0-9a-f]{16}$/u);
 		} finally {
 			store.close();
@@ -90,7 +101,7 @@ describe("observation store", () => {
 			assert.equal(summary.byTarget[1].errorCount, 1);
 			assert.deepEqual(summary.topErrors.map((error) => error.code), ["WEB_PROVIDER_RATE_LIMIT"]);
 			assert.equal(summary.topErrors[0].lastMessage, "HTTP 429");
-			assert.ok(summary.byBucket.length >= 24, "24h is bucketed by hour");
+			assert.ok(summary.byBucket.length >= 12, "today is bucketed by hour");
 			assert.ok(summary.byBucket.some((bucket) => bucket.count > 0));
 		} finally {
 			store.close();
@@ -112,7 +123,7 @@ describe("observation store", () => {
 		}
 	});
 
-	it("filters records by target, status, query and time cursor", () => {
+	it("filters records by target, status, query and paginates by page number", () => {
 		const clock = { now: Date.parse("2026-10-31T12:00:00.000Z") };
 		const { store, dir } = storeWithClock(clock);
 		try {
@@ -126,10 +137,17 @@ describe("observation store", () => {
 			const first = store.records({ limit: 2 });
 			assert.equal(first.records.length, 2);
 			assert.equal(first.records[0].query, "失败查询", "records come newest first");
-			assert.equal(first.nextBefore, first.records[1].at);
-			const second = store.records({ limit: 2, before: first.nextBefore });
+			assert.equal(first.total, 3);
+			assert.equal(first.page, 1);
+			assert.equal(first.pageSize, 2);
+			const second = store.records({ limit: 2, page: 2 });
 			assert.equal(second.records.length, 1);
-			assert.equal(second.nextBefore, null);
+			assert.equal(second.page, 2);
+			assert.equal(second.total, 3);
+			/** 超出范围的页码夹紧到最后一页，而不是返回空页。 */
+			const clamped = store.records({ limit: 2, page: 99 });
+			assert.equal(clamped.page, 2);
+			assert.equal(clamped.records.length, 1);
 		} finally {
 			store.close();
 			rmSync(dir, { recursive: true, force: true });
@@ -146,6 +164,9 @@ describe("observation store", () => {
 			const record = JSON.parse(lines[0]);
 			assert.equal(record.query, "带,逗号");
 			assert.equal(record.sources.length, 1);
+			assert.equal(record.answer, "答案正文");
+			assert.equal(record.sources[0].title, "A");
+			assert.equal(record.sources[0].url, "https://a.example/x");
 			assert.match(jsonl.filename, /^web-search-diy-observations-\d{4}-\d{2}-\d{2}\.jsonl$/u);
 			const csv = store.export({ format: "csv" });
 			const rows = csv.body.trim().split("\r\n");
@@ -200,7 +221,7 @@ describe("observation store", () => {
 });
 
 describe("observation retention", () => {
-	it("drops records older than the retention window on open", () => {
+	it("keeps old records on open; only the row cap trims", () => {
 		const dir = tempDir();
 		const path = join(dir, "observations.db");
 		const clock = { now: Date.parse("2026-10-31T12:00:00.000Z") };
@@ -209,12 +230,12 @@ describe("observation retention", () => {
 			store.record(outcome({ startedAt: new Date(clock.now - 200 * 24 * HOUR).toISOString() }));
 			store.record(outcome({ startedAt: new Date(clock.now).toISOString() }));
 			store.close();
-			/** 重新打开即执行保留策略；旧记录被清掉，当天的保留。 */
+			/** 历史导入可能早于任何时间窗口，打开数据库不应按时间删除。 */
 			const reopened = openObservationDatabase(path);
 			reopened.close();
 			const again = ObservationStore.open({ path, now: () => clock.now });
 			try {
-				assert.equal(again.summary({ since: "all" }).totals.count, 1);
+				assert.equal(again.summary({ since: "all" }).totals.count, 2);
 			} finally {
 				again.close();
 			}
@@ -257,10 +278,10 @@ describe("observability endpoints", () => {
 	}
 
 	/** Register the four routes against a fake server and return a caller. */
-	function endpoints(store) {
+	function endpoints(store, importRunner) {
 		const handlers = new Map();
 		const webServer = { register(entry) { handlers.set(entry.path, entry.handler); return () => {}; } };
-		registerObservabilityEndpoints(store, webServer);
+		registerObservabilityEndpoints(store, webServer, importRunner);
 		return async (method, url, body) => {
 			const path = url.split("?")[0];
 			const handler = handlers.get(path);
@@ -276,7 +297,7 @@ describe("observability endpoints", () => {
 		try {
 			store.record(outcome());
 			const call = endpoints(store);
-			const summary = await call("GET", "/api/web-search-diy/observability/summary?since=24h");
+			const summary = await call("GET", "/api/web-search-diy/observability/summary?since=today");
 			assert.equal(summary.status, 200);
 			assert.equal(JSON.parse(summary.payload).totals.count, 1);
 
@@ -300,12 +321,40 @@ describe("observability endpoints", () => {
 		}
 	});
 
+	it("accepts an older import window and forwards both boundaries", async () => {
+		const { store, dir } = storeWithClock();
+		try {
+			const received = [];
+			const call = endpoints(store, async (sinceMs, untilMs) => {
+				received.push({ sinceMs, untilMs });
+				return { sessions: 0, calls: 0, imported: 0, skipped: 0, failed: 0, filtered: 0, identified: 0, updated: 0 };
+			});
+			const response = await call("POST", "/api/web-search-diy/observability/import", {
+				since: "2026-01-01T00:00:00.000Z",
+				until: "2026-10-01T00:00:00.000Z"
+			});
+			assert.equal(response.status, 200);
+			assert.equal(received.length, 1);
+			assert.equal(received[0].sinceMs, Date.parse("2026-01-01T00:00:00.000Z"));
+			assert.equal(received[0].untilMs, Date.parse("2026-10-01T00:00:00.000Z"));
+			const reversed = await call("POST", "/api/web-search-diy/observability/import", {
+				since: "2026-10-01T00:00:00.000Z",
+				until: "2026-09-01T00:00:00.000Z"
+			});
+			assert.equal(reversed.status, 400);
+		} finally {
+			store.close();
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
 	it("rejects bad ranges and formats with 400", async () => {
 		const { store, dir } = storeWithClock();
 		try {
 			const call = endpoints(store);
 			assert.equal((await call("GET", "/api/web-search-diy/observability/summary?since=yesterday")).status, 400);
-			assert.equal((await call("GET", "/api/web-search-diy/observability/records?before=not-a-date")).status, 400);
+			assert.equal((await call("GET", "/api/web-search-diy/observability/records?until=not-a-date")).status, 400);
+			assert.equal((await call("GET", "/api/web-search-diy/observability/records?since=2026-10-31T00:00:00.000Z&until=2026-10-30T00:00:00.000Z")).status, 400);
 			assert.equal((await call("GET", "/api/web-search-diy/observability/export?format=xml")).status, 400);
 		} finally {
 			store.close();
@@ -465,13 +514,218 @@ describe("capture points", () => {
 	});
 });
 
+describe("schema migration", () => {
+	it("upgrades a v1 database and keeps old rows readable", () => {
+		const dir = tempDir();
+		const path = join(dir, "observations.db");
+		const { DatabaseSync } = process.getBuiltinModule("node:sqlite");
+		const db = new DatabaseSync(path);
+		db.exec(`
+			CREATE TABLE observations (
+				id TEXT PRIMARY KEY, at TEXT NOT NULL, kind TEXT NOT NULL, session_id TEXT,
+				target TEXT NOT NULL, vendor TEXT NOT NULL, protocol TEXT NOT NULL, query TEXT NOT NULL,
+				ok INTEGER NOT NULL, error_code TEXT, error_message TEXT, duration_ms INTEGER NOT NULL,
+				source_count INTEGER NOT NULL, with_title INTEGER NOT NULL, with_snippet INTEGER NOT NULL,
+				with_summary INTEGER NOT NULL, summary_chars INTEGER NOT NULL, answer_chars INTEGER NOT NULL,
+				truncated INTEGER NOT NULL
+			);
+			CREATE TABLE observation_sources (
+				observation_id TEXT NOT NULL REFERENCES observations(id) ON DELETE CASCADE,
+				url_hash TEXT NOT NULL, host TEXT NOT NULL, has_title INTEGER NOT NULL,
+				has_snippet INTEGER NOT NULL, has_summary INTEGER NOT NULL,
+				PRIMARY KEY (observation_id, url_hash)
+			);
+			PRAGMA user_version = 1;
+		`);
+		db.prepare(`INSERT INTO observations (id, at, kind, target, vendor, protocol, query, ok, duration_ms, source_count, with_title, with_snippet, with_summary, summary_chars, answer_chars, truncated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+			.run("old-1", "2026-10-01T00:00:00.000Z", "search", "deepseek/search", "deepseek", "search", "旧记录", 1, 100, 1, 1, 1, 0, 0, 0, 0);
+		db.prepare("INSERT INTO observation_sources (observation_id, url_hash, host, has_title, has_snippet, has_summary) VALUES (?, ?, ?, ?, ?, ?)")
+			.run("old-1", "0123456789abcdef", "old.example", 1, 1, 0);
+		db.close();
+		const store = ObservationStore.open({ path });
+		try {
+			const page = store.records({ since: "all" });
+			assert.equal(page.records.length, 1);
+			assert.equal(page.records[0].query, "旧记录");
+			assert.equal(page.records[0].answer, void 0, "v1 rows have no answer text");
+			assert.equal(page.records[0].sources[0].host, "old.example");
+			assert.equal(page.records[0].sources[0].url, void 0, "v1 sources have no URL column");
+			assert.equal(page.records[0].sources[0].title, void 0);
+		} finally {
+			store.close();
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("historical import", () => {
+	it("imports web_search calls from session logs and stays idempotent", async () => {
+		const dir = tempDir();
+		const previous = process.env.DSH_HOME;
+		process.env.DSH_HOME = dir;
+		const sessionDir = join(dir, "sessions", "project", "session-abc");
+		mkdirSync(sessionDir, { recursive: true });
+		const callTime = Date.parse("2026-10-30T18:57:38.947Z");
+		const events = [
+			{ type: "tool/call", seq: 21, time: callTime, data: { name: "web_search", callId: "c1", arguments: JSON.stringify({ queries: ["历史查询一", "历史查询二"] }) } },
+			{
+				type: "tool/result", seq: 22, time: callTime + 500,
+				data: {
+					message: { toolCallId: "c1", isError: false, content: [{ type: "text", text: "fallback text" }] },
+					meta: { sources: [{ url: "https://old.example/1", title: "旧标题", snippet: "旧摘要" }], answer: "历史答案", truncated: false }
+				}
+			}
+		];
+		writeFileSync(join(sessionDir, "session.v4.jsonl.zstd"), zstdCompressSync(events.map((event) => JSON.stringify(event)).join("\n")));
+		const store = ObservationStore.open({ path: join(dir, "observations.db") });
+		try {
+			const first = await importHistorical(store);
+			assert.deepEqual(first, { sessions: 1, calls: 1, imported: 1, skipped: 0, failed: 0, filtered: 0, identified: 0, updated: 0 });
+			const page = store.records({ since: "all" });
+			assert.equal(page.records.length, 1);
+			const record = page.records[0];
+			assert.equal(record.target, "historical");
+			assert.equal(record.query, "历史查询一 | 历史查询二");
+			assert.equal(record.answer, "历史答案");
+			assert.equal(record.sessionId, "abc");
+			assert.equal(record.durationMs, 500);
+			assert.equal(record.sources[0].title, "旧标题");
+			assert.equal(record.sources[0].url, "https://old.example/1");
+			assert.equal(record.sources[0].snippet, "旧摘要");
+			const second = await importHistorical(store);
+			assert.equal(second.imported, 0, "a re-run does not duplicate the record");
+			assert.equal(second.skipped, 1);
+			/** 独立的导入范围：起点晚于调用时间时，整条调用被过滤。 */
+			const filtered = await importHistorical(store, { sinceMs: callTime + 1 });
+			assert.equal(filtered.imported, 0);
+			assert.equal(filtered.filtered, 1);
+			assert.equal(filtered.calls, 0);
+			/** 结束时间早于调用时间时同样被过滤。 */
+			const filteredUntil = await importHistorical(store, { untilMs: callTime - 1 });
+			assert.equal(filteredUntil.imported, 0);
+			assert.equal(filteredUntil.filtered, 1);
+			assert.equal(filteredUntil.calls, 0);
+		} finally {
+			store.close();
+			if (previous === void 0) delete process.env.DSH_HOME;
+			else process.env.DSH_HOME = previous;
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+});
+
+	it("backfills the target from the outbound request event on a re-import", async () => {
+		const dir = tempDir();
+		const previous = process.env.DSH_HOME;
+		process.env.DSH_HOME = dir;
+		const sessionDir = join(dir, "sessions", "project", "session-def");
+		mkdirSync(sessionDir, { recursive: true });
+		const callTime = Date.parse("2026-10-29T10:00:00.000Z");
+		const base = [
+			{ type: "tool/call", seq: 10, time: callTime, data: { name: "web_search", callId: "c9", arguments: JSON.stringify({ queries: ["历史查询"] }) } }
+		];
+		const result = {
+			type: "tool/result", seq: 12, time: callTime + 800,
+			data: {
+				message: { toolCallId: "c9", isError: false, content: [{ type: "text", text: "fallback" }] },
+				meta: { sources: [{ url: "https://old.example/2", title: "旧标题二", snippet: "旧摘要二" }], answer: "历史答案二", truncated: false }
+			}
+		};
+		const write = (events) => writeFileSync(join(sessionDir, "session.v4.jsonl.zstd"), zstdCompressSync(events.map((event) => JSON.stringify(event)).join("\n")));
+		const store = ObservationStore.open({ path: join(dir, "observations.db") });
+		try {
+			write([...base, result]);
+			const first = await importHistorical(store);
+			assert.equal(first.imported, 1);
+			assert.equal(first.identified, 0);
+			assert.equal(store.records({ since: "all" }).records[0].target, "historical");
+			/** 同一调用再出现时带上出站请求事件：补全 target，而不是新增一条。 */
+			const request = { type: "web/deepseek-search-llm-request", seq: 11, time: callTime + 100, data: { endpoint: "https://api.deepseek.com/anthropic/v1/messages", apiVersion: "2023-06-01", body: {} } };
+			write([...base, request, result]);
+			const second = await importHistorical(store);
+			assert.equal(second.imported, 0);
+			assert.equal(second.updated, 1);
+			assert.equal(second.identified, 1);
+			const record = store.records({ since: "all" }).records[0];
+			assert.equal(record.target, "deepseek/anthropic-messages");
+			assert.equal(record.vendor, "deepseek");
+			assert.equal(record.protocol, "anthropic-messages");
+		} finally {
+			store.close();
+			if (previous === void 0) delete process.env.DSH_HOME;
+			else process.env.DSH_HOME = previous;
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+describe("historical import target hints", () => {
+	it("uses the target recorded on the request event when the endpoint is not a catalog default", async () => {
+		const dir = tempDir();
+		const previous = process.env.DSH_HOME;
+		process.env.DSH_HOME = dir;
+		const sessionDir = join(dir, "sessions", "project", "session-ghi");
+		mkdirSync(sessionDir, { recursive: true });
+		const callTime = Date.parse("2026-10-31T13:16:03.089Z");
+		const events = [
+			{ type: "tool/call", seq: 10, time: callTime, data: { name: "web_search", callId: "c3", arguments: JSON.stringify({ queries: ["历史查询三"] }) } },
+			/** 用户改过 baseURL 时端点不在 catalog 里，事件上的 target 才是可靠来源。 */
+			{ type: "web/deepseek-search-llm-request", seq: 11, time: callTime + 100, data: { endpoint: "https://proxy.example/v1/responses", target: "qwen/responses", body: {} } },
+			{
+				type: "tool/result", seq: 12, time: callTime + 900,
+				data: {
+					message: { toolCallId: "c3", isError: false, content: [{ type: "text", text: "fallback" }] },
+					meta: { sources: [{ url: "https://old.example/3", title: "旧标题三", snippet: "旧摘要三" }], answer: "历史答案三", truncated: false }
+				}
+			}
+		];
+		writeFileSync(join(sessionDir, "session.v4.jsonl.zstd"), zstdCompressSync(events.map((event) => JSON.stringify(event)).join("\n")));
+		const store = ObservationStore.open({ path: join(dir, "observations.db") });
+		try {
+			const result = await importHistorical(store);
+			assert.equal(result.imported, 1);
+			assert.equal(result.identified, 1);
+			const record = store.records({ since: "all" }).records[0];
+			assert.equal(record.target, "qwen/responses");
+			assert.equal(record.vendor, "qwen");
+			assert.equal(record.protocol, "responses");
+		} finally {
+			store.close();
+			if (previous === void 0) delete process.env.DSH_HOME;
+			else process.env.DSH_HOME = previous;
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+});
+
 describe("range parsing", () => {
-	it("resolves presets, all and ISO timestamps", () => {
-		const now = Date.parse("2026-10-31T12:00:00.000Z");
-		assert.equal(resolveRange(void 0, now).sinceMs, now - 24 * HOUR);
+	it("resolves relative presets, natural-day presets and ISO timestamps", () => {
+		const now = new Date(2026, 9, 31, 12, 0, 0).getTime();
+		const today = new Date(2026, 9, 31).getTime();
+		const day = new Date(now).getDay();
+		const weekOffset = day === 0 ? 6 : day - 1;
+		assert.equal(resolveRange(void 0, now).sinceMs, now - 24 * HOUR, "no range defaults to 24h");
+		assert.equal(resolveRange("24h", now).sinceMs, now - 24 * HOUR);
 		assert.equal(resolveRange("7d", now).sinceMs, now - 7 * 24 * HOUR);
-		assert.equal(resolveRange("all", now).sinceMs, now - 180 * 24 * HOUR);
+		assert.equal(resolveRange("30d", now).sinceMs, now - 30 * 24 * HOUR);
+		assert.equal(resolveRange("today", now).sinceMs, today);
+		assert.equal(resolveRange("week", now).sinceMs, new Date(2026, 9, 31 - weekOffset).getTime());
+		assert.equal(resolveRange("month", now).sinceMs, new Date(2026, 9, 1).getTime());
+		assert.equal(resolveRange("quarter", now).sinceMs, new Date(2026, 9, 1).getTime());
+		assert.equal(resolveRange("year", now).sinceMs, new Date(2026, 0, 1).getTime());
+		assert.equal(resolveRange("all", now).sinceMs, 0);
 		assert.equal(resolveRange("2026-10-01T00:00:00.000Z", now).sinceMs, Date.parse("2026-10-01T00:00:00.000Z"));
 		assert.throws(() => resolveRange("yesterday", now), /无法解析/u);
+	});
+
+	it("honors an explicit until boundary", () => {
+		const now = new Date(2026, 9, 31, 12, 0, 0).getTime();
+		const since = "2026-10-01T00:00:00.000Z";
+		const until = "2026-10-15T23:59:59.999Z";
+		const range = resolveRange(since, now, until);
+		assert.equal(range.sinceMs, Date.parse(since));
+		assert.equal(range.untilMs, Date.parse(until));
+		assert.equal(resolveRange("30d", now, until).untilMs, Date.parse(until));
+		assert.throws(() => resolveRange("2026-10-20T00:00:00.000Z", now, until), /结束时间必须晚于开始时间/u);
+		assert.throws(() => resolveRange(since, now, "not-a-date"), /无法解析的结束时间/u);
 	});
 });

@@ -28,7 +28,7 @@ export const CUSTOM_SEARCH_ENGINES: readonly string[] = [
  * 但 UI 只渲染当前变体相关的字段，避免在 OpenRouter 变体下误填智谱参数。
  */
 export const CHAT_VARIANT_FIELDS: Readonly<Record<string, readonly string[]>> = {
-	zhipu: ["searchEngine", "count", "searchRecencyFilter", "contentSize", "searchDomainFilter", "searchIntent", "requireSearch", "searchPrompt", "reasoningEffort"],
+	zhipu: ["searchEngine", "count", "searchRecencyFilter", "contentSize", "searchDomainFilter", "requireSearch", "searchPrompt", "reasoningEffort"],
 	qwen: ["searchStrategy", "forcedSearch", "freshness", "assignedSiteList", "searchExtension", "promptIntervene"],
 	openrouter: ["engine", "mode", "maxResults", "maxUses", "maxTotalResults", "searchContextSize", "maxCharacters", "userLocation", "allowedDomains", "excludedDomains", "xSearch"],
 	"openai-search-model": []
@@ -40,7 +40,7 @@ export const CHAT_VARIANT_ONLY = new Set(Object.values(CHAT_VARIANT_FIELDS).flat
 export const ADVANCED = new Set([
 	"toolType", "includeSources", "reasoningEffort", "thinking", "effort", "searchContextSize",
 	"allowedDomains", "blockedDomains", "excludedDomains", "userLocation", "maxUses",
-	"searchRecencyFilter", "contentSize", "searchDomainFilter", "searchIntent", "requireSearch",
+	"searchRecencyFilter", "contentSize", "searchDomainFilter", "requireSearch",
 	"searchPrompt", "searchStrategy", "forcedSearch", "freshness", "assignedSiteList",
 	"searchExtension", "promptIntervene", "engine", "mode", "maxResults", "maxTotalResults",
 	"maxCharacters", "includeContent", "timeoutSeconds", "oriQuestion", "localization", "chatVariant", "digestEntries", "digestSnippetChars",

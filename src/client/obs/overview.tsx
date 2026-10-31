@@ -1,26 +1,25 @@
 /**
  * 观测概览：五张指标卡、target 排行与最近记录。
  *
- * 概览只回答「健康吗、哪个 target 好、最近发生了什么」，不画趋势图（2.1.0）。
+ * 概览展示指标卡、趋势与 target 排行，记录明细在记录页。
  *
  * @module dsh-web-search-diy/client/obs/overview
  */
-import type { RecordView, SummaryResponse } from "./types.ts";
-import { durationOf, numberOf, percentOf, queryOf, timeOf } from "./format.ts";
-import { EmptyState, ErrorBanner, MetricCard, MetricSkeleton, StatusCell, TableSkeleton } from "./shared.tsx";
+import type { SummaryResponse } from "./types.ts";
+import { durationOf, numberOf, percentOf, targetLabelOf } from "./format.ts";
+import { TrendChart } from "./charts.tsx";
+import { EmptyState, ErrorBanner, MetricCard, MetricSkeleton, TableSkeleton } from "./shared.tsx";
 
 /** Overview props. */
 export interface OverviewProps {
 	readonly t: (key: string) => string;
 	readonly summary: SummaryResponse | null;
-	readonly recent: readonly RecordView[];
 	readonly loading: boolean;
 	readonly error: string | null;
 	/** True when a target filter is active, so an empty result explains itself. */
 	readonly filtered: boolean;
 	readonly onRefresh: () => void;
 	readonly onOpenTarget: (target: string) => void;
-	readonly onOpenRecords: () => void;
 	readonly onClearFilters: () => void;
 }
 
@@ -40,7 +39,7 @@ function TargetRanking({ t, summary, onOpenTarget }: { t: (key: string) => strin
 							<th scope="col" className="dwsd-obs-num">{t("obsMetricSuccess")}</th>
 							<th scope="col" className="dwsd-obs-num">{t("obsMetricP95")}</th>
 							<th scope="col" className="dwsd-obs-num">{t("obsMetricSources")}</th>
-							<th scope="col" className="dwsd-obs-num">{t("obsMetricSummary")}</th>
+							<th scope="col" className="dwsd-obs-num dwsd-obs-colSummary">{t("obsMetricSummary")}</th>
 							<th scope="col" className="dwsd-obs-num">{t("obsTableErrors")}</th>
 						</tr>
 					</thead>
@@ -58,43 +57,18 @@ function TargetRanking({ t, summary, onOpenTarget }: { t: (key: string) => strin
 									}
 								}}
 							>
-								<td className="dwsd-obs-targetCell">{row.target}</td>
+								<td className="dwsd-obs-targetCell">{targetLabelOf(t, row.target)}</td>
 								<td className="dwsd-obs-num">{numberOf(row.count)}</td>
 								<td className="dwsd-obs-num">{percentOf(row.successRate)}</td>
 								<td className="dwsd-obs-num">{durationOf(row.p95)}</td>
 								<td className="dwsd-obs-num">{numberOf(row.avgSources, 1)}</td>
-								<td className="dwsd-obs-num">{percentOf(row.summaryCoverage)}</td>
+								<td className="dwsd-obs-num dwsd-obs-colSummary">{percentOf(row.summaryCoverage)}</td>
 								<td className="dwsd-obs-num">{row.errorCount > 0 ? numberOf(row.errorCount) : "—"}</td>
 							</tr>
 						))}
 					</tbody>
 				</table>
 			</div>
-		</section>
-	);
-}
-
-/** The most recent searches, independent of the ranking. */
-function RecentSearches({ t, recent, onOpenRecords }: { t: (key: string) => string; recent: readonly RecordView[]; onOpenRecords: () => void }) {
-	return (
-		<section className="dwsd-obs-section">
-			<div className="dwsd-obs-sectionHead">
-				<h3 className="dwsd-obs-sectionTitle">{t("obsRecent")}</h3>
-				<button type="button" className="dwsd-obs-link" onClick={onOpenRecords}>{t("obsViewAll")}</button>
-			</div>
-			{recent.length === 0
-				? <p className="dwsd-obs-hint">{t("obsNoData")}</p>
-				: <ul className="dwsd-obs-list">
-					{recent.map((record) => (
-						<li className="dwsd-obs-listRow" key={record.id}>
-							<span className="dwsd-obs-listTime">{timeOf(record.at)}</span>
-							<span className="dwsd-obs-listTarget">{record.target}</span>
-							<span className="dwsd-obs-listQuery">{queryOf(record.query, 32)}</span>
-							<span className="dwsd-obs-listMeta">{durationOf(record.durationMs)} · {record.sourceCount} {t("obsSourcesShort")}</span>
-							<StatusCell t={t} ok={record.ok} />
-						</li>
-					))}
-				</ul>}
 		</section>
 	);
 }
@@ -117,12 +91,12 @@ export function Overview(props: OverviewProps) {
 							<MetricCard label={t("obsMetricSources")} value={numberOf(summary.totals.avgSources, 1)} />
 							<MetricCard label={t("obsMetricSummary")} value={percentOf(summary.totals.summaryCoverage)} />
 						</div>
+						<TrendChart t={t} buckets={summary.byBucket} />
 						{summary.totals.count === 0
 							? props.filtered
 								? <EmptyState t={t} title={t("obsEmptyFiltered")} hint={t("obsEmptyFilteredHint")} actionLabel={t("obsClearFilters")} onAction={props.onClearFilters} />
 								: <EmptyState t={t} title={t("obsEmpty")} hint={t("obsEmptyHint")} />
 							: <TargetRanking t={t} summary={summary} onOpenTarget={props.onOpenTarget} />}
-						{summary.totals.count > 0 ? <RecentSearches t={t} recent={props.recent} onOpenRecords={props.onOpenRecords} /> : null}
 					</div>
 				)}
 		</div>

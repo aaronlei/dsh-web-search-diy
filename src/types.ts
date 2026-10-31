@@ -10,8 +10,10 @@ import type {} from "@deepseek-ai/dsh-session";
 export interface RecordedSearchRequest {
 	/** 完整请求 URL。 */
 	readonly endpoint: string;
+	/** 本次搜索的 target id；历史导入据此还原 target，不依赖端点反查。 */
+	readonly target: TargetId;
 	/** `anthropic-version` 头值（仅 Anthropic 协议）。 */
-	readonly apiVersion: string;
+	readonly apiVersion?: string;
 	/** 实际发送的请求体（可能经过 reasoning 降级重试）。 */
 	readonly body: unknown;
 }
@@ -39,7 +41,6 @@ export interface ResolvedSettings {
 	searchRecencyFilter: string;
 	contentSize: string;
 	searchDomainFilter: string;
-	searchIntent: boolean;
 	requireSearch: boolean;
 	searchPrompt: string;
 	searchStrategy: string;

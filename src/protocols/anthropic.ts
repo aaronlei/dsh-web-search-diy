@@ -135,7 +135,7 @@ export async function searchAnthropicMessages(options: SearchOptions, apiKey: st
 		"x-api-key": apiKey,
 		"anthropic-version": DEFAULT_API_VERSION
 	}, (sent) => {
-		options.recordRequest?.({ endpoint, apiVersion: DEFAULT_API_VERSION, body: sent });
+		options.recordRequest?.({ endpoint, target: options.target, apiVersion: DEFAULT_API_VERSION, body: sent });
 	});
 	try {
 		return mapAnthropicResponse(data);

@@ -6,40 +6,34 @@
  * @module dsh-web-search-diy/client/obs/page
  */
 import * as react from "react";
-import type { Filters, RangeKey, RecordView, SummaryResponse } from "./types.ts";
-import { clearObservations, exportUrl, fetchRecords, fetchSummary } from "./api.ts";
+import type { Filters, SummaryResponse, TimeRange } from "./types.ts";
+import { clearObservations, exportUrl, fetchSummary, importHistory, type ImportResult } from "./api.ts";
+import { RangePicker } from "./calendar.tsx";
+import { DEFAULT_RANGE } from "./range.ts";
 import { Overview } from "./overview.tsx";
 import { Records } from "./records.tsx";
 
 /** 二级视图。 */
 type ViewKey = "overview" | "records";
 
-/** 时间范围选项顺序。 */
-const RANGES: readonly RangeKey[] = ["24h", "7d", "30d", "all"];
-
-/** 概览的最近记录条数。 */
-const RECENT_LIMIT = 8;
-
-/** 时间范围的本地化标签 key。 */
-function rangeLabel(t: (key: string) => string, range: RangeKey): string {
-	return t(`obsRange_${range}`);
-}
-
 /** The observability page. */
 export function ObsPage({ t }: { t: (key: string) => string }) {
 	const [view, setView] = react.useState<ViewKey>("overview");
-	const [range, setRange] = react.useState<RangeKey>("24h");
+	const [range, setRange] = react.useState<TimeRange>(DEFAULT_RANGE);
+	/** 导入范围与查询范围互相独立：共用同一个选择器，但各自持有自己的值。 */
+	const [importRange, setImportRange] = react.useState<TimeRange>(DEFAULT_RANGE);
 	const [target, setTarget] = react.useState("");
 	const [includeTests, setIncludeTests] = react.useState(false);
 	const [refreshToken, setRefreshToken] = react.useState(0);
 	const [summary, setSummary] = react.useState<SummaryResponse | null>(null);
-	const [recent, setRecent] = react.useState<readonly RecordView[]>([]);
 	const [targetOptions, setTargetOptions] = react.useState<readonly string[]>([]);
 	const [loading, setLoading] = react.useState(true);
 	const [error, setError] = react.useState<string | null>(null);
 	const [clearText, setClearText] = react.useState("");
 	const [clearing, setClearing] = react.useState(false);
 	const [cleared, setCleared] = react.useState<string | null>(null);
+	const [importing, setImporting] = react.useState(false);
+	const [imported, setImported] = react.useState<string | null>(null);
 
 	const filters = react.useMemo<Filters>(() => ({ range, target, includeTests }), [range, target, includeTests]);
 
@@ -48,12 +42,8 @@ export function ObsPage({ t }: { t: (key: string) => string }) {
 		setLoading(true);
 		setError(null);
 		try {
-			const [nextSummary, nextRecent] = await Promise.all([
-				fetchSummary(filters, signal),
-				fetchRecords(filters, { limit: RECENT_LIMIT }, signal)
-			]);
+			const nextSummary = await fetchSummary(filters, signal);
 			setSummary(nextSummary);
-			setRecent(nextRecent.records);
 			/** 未筛选时刷新 target 选项；筛选后保留完整列表，避免选项随筛选收缩。 */
 			if (filters.target.length === 0) setTargetOptions(nextSummary.byTarget.map((row) => row.target));
 		} catch (cause) {
@@ -77,6 +67,28 @@ export function ObsPage({ t }: { t: (key: string) => string }) {
 	/** Clear the target filter from the overview or the records page. */
 	const clearTarget = (): void => {
 		setTarget("");
+	};
+
+	/** Import historical web_search calls from local session logs. */
+	const runImport = async (): Promise<void> => {
+		setImporting(true);
+		setImported(null);
+		setError(null);
+		try {
+			const result: ImportResult = await importHistory(importRange);
+			setImported(t("obsImportDone")
+				.replace("{sessions}", String(result.sessions))
+				.replace("{imported}", String(result.imported))
+				.replace("{skipped}", String(result.skipped))
+				.replace("{filtered}", String(result.filtered))
+				.replace("{identified}", String(result.identified))
+				.replace("{updated}", String(result.updated)));
+			refresh();
+		} catch (cause) {
+			setError(cause instanceof Error ? cause.message : String(cause));
+		} finally {
+			setImporting(false);
+		}
 	};
 
 	/** Delete every observation after the typed confirmation. */
@@ -113,12 +125,7 @@ export function ObsPage({ t }: { t: (key: string) => string }) {
 					))}
 				</div>
 				<div className="dwsd-obs-toolbarRight">
-					<label className="dwsd-obs-filter">
-						<span className="dwsd-obs-filterLabel">{t("obsRange")}</span>
-						<select className="dwsd-obs-input" value={range} onChange={(event) => { setRange(event.target.value as RangeKey); }}>
-							{RANGES.map((value) => <option key={value} value={value}>{rangeLabel(t, value)}</option>)}
-						</select>
-					</label>
+					<RangePicker label={t("obsRange")} value={range} onChange={setRange} t={t} />
 					<label className="dwsd-obs-filter">
 						<span className="dwsd-obs-filterLabel">{t("obsTargetFilter")}</span>
 						<select className="dwsd-obs-input" value={target} onChange={(event) => { setTarget(event.target.value); }}>
@@ -141,13 +148,11 @@ export function ObsPage({ t }: { t: (key: string) => string }) {
 				? <Overview
 					t={t}
 					summary={summary}
-					recent={recent}
 					loading={loading}
 					error={error}
 					filtered={filtered}
 					onRefresh={refresh}
 					onOpenTarget={(next) => { setTarget(next); setView("records"); }}
-					onOpenRecords={() => { setView("records"); }}
 					onClearFilters={clearTarget}
 				/>
 				: <Records
@@ -159,6 +164,16 @@ export function ObsPage({ t }: { t: (key: string) => string }) {
 				/>}
 			<details className="dwsd-obs-data">
 				<summary>{t("obsDataManagement")}</summary>
+				<div className="dwsd-obs-clearRow">
+					<button type="button" className="dwsd-obs-btn" disabled={importing} onClick={() => { void runImport(); }}>
+						{t(importing ? "obsImporting" : "obsImport")}
+					</button>
+					<span className="dwsd-obs-hint">{t("obsImportHint")}</span>
+				</div>
+				<div className="dwsd-obs-clearRow">
+					<RangePicker className="dwsd-obs-importRange" label={t("obsImportRange")} value={importRange} onChange={setImportRange} t={t} />
+				</div>
+				{imported !== null ? <p className="dwsd-obs-hint" role="status">{imported}</p> : null}
 				<p className="dwsd-obs-hint">{t("obsClearHint")}</p>
 				<div className="dwsd-obs-clearRow">
 					<input

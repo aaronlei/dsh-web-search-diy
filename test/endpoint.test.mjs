@@ -248,10 +248,10 @@ describe("POST /api/web-search-diy/config", () => {
 	});
 
 	it("saves Zhipu's search parameters on a custom standalone target", async () => {
-		const { status, body } = await post({ vendor: "custom", protocol: "search", path: "/web_search", apiKeyEnv: "GW_KEY", contentSize: "high", searchIntent: true });
+		const { status, body } = await post({ vendor: "custom", protocol: "search", path: "/web_search", apiKeyEnv: "GW_KEY", contentSize: "high", searchRecencyFilter: "oneWeek" });
 		assert.equal(status, 200, body.error);
 		assert.equal(body.targets["custom/search"].contentSize, "high");
-		assert.equal(body.targets["custom/search"].searchIntent, true);
+		assert.equal(body.targets["custom/search"].searchRecencyFilter, "oneWeek");
 	});
 
 	it("rejects a count Zhipu's sogou engine cannot use", async () => {
@@ -325,6 +325,7 @@ describe("plugin lifecycle", () => {
 			"/api/web-search-diy/test",
 			"/api/web-search-diy/observability/summary",
 			"/api/web-search-diy/observability/export",
+			"/api/web-search-diy/observability/import",
 			"/api/web-search-diy/observability/records"
 		]);
 		for (const dispose of disposers) dispose();

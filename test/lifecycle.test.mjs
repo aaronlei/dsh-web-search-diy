@@ -47,15 +47,15 @@ describe("webServer lifecycle", () => {
 		const remove = ctx.provide("webServer", server);
 		await ctx.plugin({ inject: ["web"], apply });
 		await settle();
-		assert.equal(registered, 5, "the config, test and three observability routes register while the server is present");
+		assert.equal(registered, 6, "the config, test and four observability routes register while the server is present");
 
 		await remove();
 		await settle();
-		assert.equal(disposed, 5, "the child fiber must release every route before the server goes away");
+		assert.equal(disposed, 6, "the child fiber must release every route before the server goes away");
 
 		ctx.provide("webServer", server);
 		await settle();
-		assert.equal(registered, 10, "the replacement server sees one fresh registration per route");
-		assert.equal(registered - disposed, 5, "no route from the previous server lingers");
+		assert.equal(registered, 12, "the replacement server sees one fresh registration per route");
+		assert.equal(registered - disposed, 6, "no route from the previous server lingers");
 	});
 });

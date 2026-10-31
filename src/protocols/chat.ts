@@ -129,7 +129,6 @@ function zhipuBody(options: SearchOptions, query: string): Record<string, unknow
 				enable: true,
 				/** 智谱变体的 search_engine 必填：自定义留空时回落 search_std，填了则用用户值。 */
 				search_engine: settings.searchEngine.length > 0 ? settings.searchEngine : "search_std",
-				search_intent: settings.searchIntent ? "true" : "false",
 				count: Math.min(Math.max(settings.count, 1), 50),
 				...(settings.searchDomainFilter.length > 0 ? { search_domain_filter: settings.searchDomainFilter } : {}),
 				search_recency_filter: settings.searchRecencyFilter,
@@ -224,7 +223,9 @@ export async function searchChatCompletions(options: SearchOptions, apiKey: stri
 		: variant === "qwen" ? qwenBody(options, request.query)
 		: variant === "openrouter" ? openrouterBody(options, request.query)
 		: openaiSearchModelBody(options, request.query);
-	const data = await postWithReasoningFallback(options.endpoint, apiKey, body, signal);
+	const data = await postWithReasoningFallback(options.endpoint, apiKey, body, signal, void 0, (sent) => {
+		options.recordRequest?.({ endpoint: options.endpoint, target: options.target, body: sent });
+	});
 	try {
 		if (variant === "zhipu") return mapZhipuChatResponse(data);
 		if (variant === "qwen") return mapQwenChatResponse(data);

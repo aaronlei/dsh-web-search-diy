@@ -73,6 +73,10 @@ let observationFixtures = null;
 let lastRecordsUrl = null;
 /** Set when the page sends DELETE /observability/records. */
 let observationCleared = false;
+/** Set when the page sends POST /observability/import. */
+let observationImported = false;
+/** The last import request body. */
+let lastImportBody = null;
 
 /** JSON response double. */
 const jsonResponse = (body) => ({ ok: true, status: 200, json: async () => body });
@@ -81,13 +85,19 @@ globalThis.fetch = async (url, init) => {
 	const target = String(url);
 	if (observationFixtures !== null && target.includes("/observability/")) {
 		if (target.includes("/observability/summary")) return jsonResponse(observationFixtures.summary);
+		if (target.includes("/observability/import")) {
+			observationImported = true;
+			lastImportBody = init?.body === void 0 ? null : JSON.parse(init.body);
+			return jsonResponse({ sessions: 3, calls: 2, imported: 2, skipped: 0, failed: 0, filtered: 1, identified: 2, updated: 1 });
+		}
 		if (target.includes("/observability/records")) {
 			if (init?.method === "DELETE") {
 				observationCleared = true;
 				return jsonResponse({ ok: true, deleted: 1 });
 			}
 			lastRecordsUrl = target;
-			return jsonResponse(observationFixtures.records);
+			const requested = Number(new URL(target, "http://localhost").searchParams.get("page") ?? "1");
+			return jsonResponse({ ...observationFixtures.records, page: requested });
 		}
 		return jsonResponse({});
 	}
@@ -726,10 +736,15 @@ observationFixtures = {
 		totals: { count: 12, successRate: 0.92, p50: 1200, p95: 4200, avgSources: 5.8, summaryCoverage: 0.78, errorCount: 1 },
 		byTarget: [
 			{ target: "deepseek/search", count: 8, successRate: 0.95, p50: 1100, p95: 3100, avgSources: 6.2, summaryCoverage: 0.91, errorCount: 0 },
-			{ target: "zhipu/search", count: 4, successRate: 0.87, p50: 2400, p95: 4800, avgSources: 4.9, summaryCoverage: 0.64, errorCount: 1 }
+			{ target: "zhipu/search", count: 4, successRate: 0.87, p50: 2400, p95: 4800, avgSources: 4.9, summaryCoverage: 0.64, errorCount: 1 },
+			{ target: "historical", count: 2, successRate: 1, p50: 500, p95: 900, avgSources: 3, summaryCoverage: 0, errorCount: 0 }
 		],
-		byBucket: [],
-		topErrors: [{ code: "WEB_PROVIDER_RATE_LIMIT", count: 1, lastMessage: "HTTP 429" }]
+		byBucket: [
+			{ at: "2026-10-31T11:00:00.000Z", count: 0, successRate: null, p95: null },
+			{ at: "2026-10-31T12:00:00.000Z", count: 12, successRate: 0.92, p95: 4200 }
+		],
+		topErrors: [{ code: "WEB_PROVIDER_RATE_LIMIT", count: 1, lastMessage: "HTTP 429" }],
+		targets: ["deepseek/search", "kimi/search", "zhipu/search"]
 	},
 	records: {
 		records: [{
@@ -741,6 +756,7 @@ observationFixtures = {
 			vendor: "deepseek",
 			protocol: "search",
 			query: "DeepSeek API 文档",
+			answer: "这是模型给出的答案正文，人类可直接阅读。",
 			ok: true,
 			durationMs: 3100,
 			sourceCount: 2,
@@ -751,11 +767,13 @@ observationFixtures = {
 			answerChars: 1601,
 			truncated: false,
 			sources: [
-				{ observationId: "rec-1", urlHash: "0123456789abcdef", host: "api-docs.deepseek.com", hasTitle: true, hasSnippet: true, hasSummary: true },
-				{ observationId: "rec-1", urlHash: "fedcba9876543210", host: "github.com", hasTitle: false, hasSnippet: true, hasSummary: false }
+				{ observationId: "rec-1", urlHash: "0123456789abcdef", host: "api-docs.deepseek.com", hasTitle: true, hasSnippet: true, hasSummary: true, url: "https://api-docs.deepseek.com/guides", title: "DeepSeek 文档", snippet: "接口说明", summary: "完整正文内容" },
+				{ observationId: "rec-1", urlHash: "fedcba9876543210", host: "github.com", hasTitle: false, hasSnippet: true, hasSummary: false, url: "https://github.com/example/repo", snippet: "repo 摘要" }
 			]
 		}],
-		nextBefore: null
+		total: 21,
+		page: 1,
+		pageSize: 10
 	}
 };
 
@@ -767,13 +785,20 @@ obsTab.props.onClick();
 render(true);
 await tick();
 let obsTree = render(false);
+if (lastRecordsUrl !== null) throw new Error("the overview must not request records");
 const metricCards = nodesOfClass(obsTree, "dwsd-obs-card");
 expectEqual(metricCards.length, 5, "the overview renders five metric cards");
 const metricValues = metricCards.map((node) => textOfNode(nodesOfClass(node, "dwsd-obs-cardValue")[0])).join(" ");
 if (!metricValues.includes("92%")) throw new Error(`the success rate must render as a percentage, got: ${metricValues}`);
 if (!metricValues.includes("4.2s")) throw new Error(`P95 must render in seconds, got: ${metricValues}`);
 if (!metricValues.includes("5.8")) throw new Error(`the average source count must render, got: ${metricValues}`);
+if (nodesOfClass(obsTree, "dwsd-obs-chart").length === 0) throw new Error("the overview should render the trend chart");
+const trend = nodesOfClass(obsTree, "dwsd-obs-chart")[0];
+const trendSvg = nodesOfClass(trend, "dwsd-obs-chartSuccess")[0];
+if (trendSvg === void 0) throw new Error("the trend chart should render the success-rate line");
+if (!allText(obsTree).includes("历史记录")) throw new Error("historical rows must render their localized label");
 console.log("overview renders the metric cards from the summary endpoint");
+console.log("the overview renders the trend chart with the success line");
 
 const rankingRows = nodesOfClass(obsTree, "dwsd-obs-clickable");
 if (rankingRows.length === 0) throw new Error("the target ranking should render clickable rows");
@@ -788,8 +813,29 @@ recordRows[0].props.onClick();
 obsTree = render(false);
 if (!allText(obsTree).includes("api-docs.deepseek.com")) throw new Error("an expanded record must list its source hosts");
 if (!allText(obsTree).includes("github.com")) throw new Error("every source host must be listed");
+if (!allText(obsTree).includes("这是模型给出的答案正文")) throw new Error("an expanded record must show the answer text");
+if (!allText(obsTree).includes("DeepSeek 文档")) throw new Error("an expanded record must show the source title");
+if (!allText(obsTree).includes("完整正文内容")) throw new Error("an expanded record must show the source snippet/summary");
 if (!allText(obsTree).includes("复制 JSON")) throw new Error("the expanded record must offer a JSON copy");
 console.log("a target row opens the records page filtered, and a row expands to its sources");
+
+const pager = nodesOfClass(obsTree, "dwsd-obs-pager")[0];
+if (pager === void 0) throw new Error("the records view needs page-number pagination");
+const currentPage = nodesOfClass(obsTree, "dwsd-obs-pageBtn").find((node) => node.props["aria-current"] === "page");
+if (currentPage === void 0 || textOfNode(currentPage) !== "1") throw new Error("the first page must be the current page");
+const pageSizeSelect = nodesOfClass(obsTree, "dwsd-obs-pageSize")[0];
+if (pageSizeSelect === void 0 || pageSizeSelect.props.value !== 10) throw new Error("the page size must default to 10");
+const jumpInput = nodesOfClass(obsTree, "dwsd-obs-pageJumpInput")[0];
+if (jumpInput === void 0) throw new Error("the pager needs a jump-to-page input");
+const secondPage = nodesOfClass(obsTree, "dwsd-obs-pageBtn").find((node) => textOfNode(node) === "2");
+if (secondPage === void 0) throw new Error("the pager needs a page 2 button");
+secondPage.props.onClick();
+render(true);
+await tick();
+obsTree = render(false);
+if (lastRecordsUrl === null || !lastRecordsUrl.includes("page=2")) throw new Error(`the pager must request the selected page, got ${lastRecordsUrl}`);
+if (lastRecordsUrl.includes("limit=") && !lastRecordsUrl.includes("limit=10")) throw new Error(`the pager must send the page size, got ${lastRecordsUrl}`);
+console.log("records paginate by page number with page size and jump-to-page");
 
 const clearInput = nodesOfClass(obsTree, "dwsd-obs-input").find((node) => node.props.placeholder === "输入 DELETE");
 if (clearInput === void 0) throw new Error("data management must offer a confirmation input");
@@ -807,8 +853,24 @@ if (!observationCleared) throw new Error("the clear button must send the DELETE 
 if (!allText(obsTree).includes("已清空 1 条记录")) throw new Error("clearing must report the deleted count");
 console.log("clearing observations requires the typed confirmation and reports the count");
 
-observationFixtures = null;
+const importButton = nodesOfClass(obsTree, "dwsd-obs-btn").find((node) => textOfNode(node) === "导入历史搜索");
+if (importButton === void 0) throw new Error("data management must offer the historical import");
+importButton.props.onClick();
+await tick();
+obsTree = render(false);
+if (!observationImported) throw new Error("the import button must call the import endpoint");
+if (lastImportBody === null || lastImportBody.since !== "24h") throw new Error(`the import must send its own range, got ${JSON.stringify(lastImportBody)}`);
+const importRange = nodesOfClass(obsTree, "dwsd-obs-importRange")[0];
+if (importRange === void 0) throw new Error("the import needs its own range selector");
+if (!allText(importRange).includes("24 小时")) throw new Error("the import range defaults to 24 hours");
+const queryRange = nodesOfClass(obsTree, "dwsd-obs-range")[0];
+if (queryRange === void 0) throw new Error("the query needs its own range selector");
+if (!allText(queryRange).includes("24 小时")) throw new Error("the query range defaults to 24 hours");
+if (nodesOfClass(obsTree, "dwsd-obs-rangeTrigger").length !== 2) throw new Error("both ranges need the same calendar dropdown");
+if (!allText(obsTree).includes("扫描 3 个会话，导入 2 条") || !allText(obsTree).includes("识别 target 2 条") || !allText(obsTree).includes("更新 1 条")) throw new Error("the import result must report imported, identified and updated counts");
+console.log("historical import runs from data management and reports its counts");
 
+observationFixtures = null;
 console.log("missing t() keys:", [...missing]);
 if (missing.size > 0) throw new Error("missing locale keys");
 console.log("\nALL CHECKS PASSED");

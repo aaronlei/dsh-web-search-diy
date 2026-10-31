@@ -7,8 +7,26 @@
  */
 import type { WebSearchResult } from "@deepseek-ai/dsh-web";
 
-/** 记录类型：真实搜索、配置页测试连接、多 target 对比（2.1.0 使用）。 */
+/** 记录类型：真实搜索、配置页测试连接；`compare` 为历史数据保留。 */
 export type ObservationKind = "search" | "test" | "compare";
+
+/**
+ * 一条来源的入库事实：不含 URL，只保留 hash、host 与内容标记。
+ */
+export interface ObservationSourceFacts {
+	readonly urlHash: string;
+	readonly host: string;
+	readonly hasTitle: boolean;
+	readonly hasSnippet: boolean;
+	readonly hasSummary: boolean;
+	/** 该来源 summary 的字符数。 */
+	readonly summaryChars: number;
+	/** 来源 URL（截断后）；记录页据此打开原文。 */
+	readonly url?: string;
+	readonly title?: string;
+	readonly snippet?: string;
+	readonly summary?: string;
+}
 
 /**
  * 一次搜索的原始结果，由 provider 报告给观测 sink。
@@ -31,6 +49,8 @@ export interface SearchOutcome {
 	readonly errorMessage?: string;
 	/** 成功时的归一化结果；失败时省略。 */
 	readonly result?: WebSearchResult;
+	/** 已归一化的来源事实；对比记录直接提供，避免二次 hash。 */
+	readonly sources?: readonly ObservationSourceFacts[];
 }
 
 /** 一条观测记录；字段与 `observations` 表一一对应。 */
@@ -61,9 +81,11 @@ export interface ObservationRecord {
 	readonly answerChars: number;
 	/** 结果是否被 seam/tool 层截断。 */
 	readonly truncated: boolean;
+	/** 返回给调用方的答案/摘要文本；记录页直接阅读，截断到 4,000 字符。 */
+	readonly answer?: string;
 }
 
-/** 一条来源明细；只保留 hash 与 host，不存完整 URL。 */
+/** 一条来源明细：hash/host 用于统计，文本字段供记录页阅读。 */
 export interface ObservationSource {
 	readonly observationId: string;
 	/** URL 的 SHA-256 前 16 位十六进制。 */
@@ -72,6 +94,11 @@ export interface ObservationSource {
 	readonly hasTitle: boolean;
 	readonly hasSnippet: boolean;
 	readonly hasSummary: boolean;
+	/** 来源 URL（截断到 2,000 字符）。 */
+	readonly url?: string;
+	readonly title?: string;
+	readonly snippet?: string;
+	readonly summary?: string;
 }
 
 /** 记录及其来源明细，供记录页展开与导出使用。 */
@@ -124,8 +151,10 @@ export interface ObservabilitySummary {
 
 /** summary / export 共用的范围参数。 */
 export interface RangeQuery {
-	/** 相对范围（`24h` / `7d` / `30d` / `all`）或 ISO-8601 时间。 */
+	/** 自然范围（`today` / `week` / `month` / `quarter` / `year` / `all`）或 ISO-8601 时间。 */
 	readonly since?: string;
+	/** 结束时间的 ISO-8601 表示；省略表示到当前时间。 */
+	readonly until?: string;
 	readonly target?: string;
 	/** true 时把 test / compare 记录也计入；默认只算 search。 */
 	readonly includeTests?: boolean;
@@ -134,18 +163,22 @@ export interface RangeQuery {
 /** GET /observability/records 的查询参数。 */
 export interface RecordsQuery extends RangeQuery {
 	readonly limit?: number;
-	/** 返回严格早于该时间的记录，用于倒序分页。 */
-	readonly before?: string;
+	/** 页码，从 1 开始；超出范围时由存储夹紧到最后一页。 */
+	readonly page?: number;
 	readonly status?: "ok" | "fail";
 	/** 搜索词子串，忽略大小写。 */
 	readonly query?: string;
 }
 
-/** 一对分页游标与记录。 */
+/** 一页记录与总数。 */
 export interface RecordsPage {
 	readonly records: readonly ObservationRecordView[];
-	/** 还有更早记录时给出下一页的 `before`；否则 null。 */
-	readonly nextBefore: string | null;
+	/** 当前筛选条件下的记录总数。 */
+	readonly total: number;
+	/** 实际页码（已夹紧到有效范围）。 */
+	readonly page: number;
+	/** 每页条数（已收窄到上限）。 */
+	readonly pageSize: number;
 }
 
 /** 导出格式。 */

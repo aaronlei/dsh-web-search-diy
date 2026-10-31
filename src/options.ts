@@ -43,7 +43,6 @@ const DEFAULT_SETTINGS: ResolvedSettings = {
 	searchRecencyFilter: "noLimit",
 	contentSize: "medium",
 	searchDomainFilter: "",
-	searchIntent: false,
 	requireSearch: false,
 	searchPrompt: "",
 	searchStrategy: "turbo",

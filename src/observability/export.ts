@@ -12,7 +12,8 @@ import type { ExportFormat, ObservationRecordView } from "./types.ts";
 const CSV_COLUMNS = [
 	"id", "at", "kind", "session_id", "target", "vendor", "protocol", "query", "ok",
 	"error_code", "error_message", "duration_ms", "source_count", "with_title",
-	"with_snippet", "with_summary", "summary_chars", "answer_chars", "truncated", "source_hosts"
+	"with_snippet", "with_summary", "summary_chars", "answer_chars", "truncated", "source_hosts",
+	"answer", "source_titles"
 ] as const;
 
 /** 一个单元格的 CSV 转义：含分隔符、引号或换行时加引号并双写内部引号。 */
@@ -28,7 +29,8 @@ function csvRow(view: ObservationRecordView): string[] {
 		view.query, view.ok ? "true" : "false", view.errorCode ?? "", view.errorMessage ?? "",
 		String(view.durationMs), String(view.sourceCount), String(view.withTitle), String(view.withSnippet),
 		String(view.withSummary), String(view.summaryChars), String(view.answerChars),
-		view.truncated ? "true" : "false", view.sources.map((source) => source.host).join(";")
+		view.truncated ? "true" : "false", view.sources.map((source) => source.host).join(";"),
+		view.answer ?? "", view.sources.map((source) => source.title ?? source.host).join(";")
 	];
 }
 

@@ -55,7 +55,6 @@ export interface TargetOptions {
 	searchRecencyFilter?: string;
 	contentSize?: string;
 	searchDomainFilter?: string;
-	searchIntent?: boolean;
 	requireSearch?: boolean;
 	searchPrompt?: string;
 	searchStrategy?: string;
@@ -165,18 +164,17 @@ const RESPONSES_ADVANCED: readonly FieldKey[] = ["toolType", "includeSources", "
 const ANTHROPIC_ADVANCED: readonly FieldKey[] = ["toolType", "maxUses", "thinking", "effort"];
 
 /** 智谱 Chat 的搜索字段。 */
-const ZHIPU_CHAT_SEARCH: readonly FieldKey[] = ["searchEngine", "count", "searchRecencyFilter", "contentSize", "searchDomainFilter", "searchIntent", "requireSearch", "searchPrompt", "reasoningEffort"];
+const ZHIPU_CHAT_SEARCH: readonly FieldKey[] = ["searchEngine", "count", "searchRecencyFilter", "contentSize", "searchDomainFilter", "requireSearch", "searchPrompt", "reasoningEffort"];
 
 /** 智谱原始搜索的字段。 */
-const ZHIPU_STANDALONE: readonly FieldKey[] = ["searchEngine", "count", "searchRecencyFilter", "contentSize", "searchDomainFilter", "searchIntent"];
+const ZHIPU_STANDALONE: readonly FieldKey[] = ["searchEngine", "count", "searchRecencyFilter", "contentSize", "searchDomainFilter"];
 
 /** 智谱两个 target 共用的默认搜索参数。 */
 const ZHIPU_DEFAULTS = {
 	searchEngine: "search_std",
 	count: 10,
 	searchRecencyFilter: "noLimit",
-	contentSize: "medium",
-	searchIntent: false
+	contentSize: "medium"
 } as const;
 
 /**
@@ -773,7 +771,7 @@ export const CUSTOM_TARGETS: Record<string, Capability> = {
 			digestEntries: 8,
 			digestSnippetChars: 200
 		},
-		fields: [...CONNECTION, "path", "count", "includeContent", "oriQuestion", "searchRecencyFilter", "contentSize", "searchIntent", "searchDomainFilter", "searchEngine", "timeoutSeconds", "localization", "digestEntries", "digestSnippetChars", "queryField", "countField", "resultsPath", "urlField", "titleField", "snippetField", "dateField", "contentField"],
+		fields: [...CONNECTION, "path", "count", "includeContent", "oriQuestion", "searchRecencyFilter", "contentSize", "searchDomainFilter", "searchEngine", "timeoutSeconds", "localization", "digestEntries", "digestSnippetChars", "queryField", "countField", "resultsPath", "urlField", "titleField", "snippetField", "dateField", "contentField"],
 		search: { kind: "standalone", path: "/web_search", sourceQuality: "partial" },
 		hints: {
 			template: "决定请求字段名与响应结构；字段名可被高级项覆盖",

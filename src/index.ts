@@ -18,6 +18,7 @@ import { DEFAULT_TARGET, type TargetId } from "./catalog.ts";
 import { readConfigDocument, selectDefaultTarget } from "./config.ts";
 import { registerConfigEndpoint, type WebServerLike } from "./endpoint.ts";
 import { registerObservabilityEndpoints } from "./observability/endpoint.ts";
+import { importHistorical } from "./observability/import.ts";
 import { ObservationStore } from "./observability/store.ts";
 import { resolveCurrentOptions } from "./options.ts";
 import { DiySearchProvider } from "./provider.ts";
@@ -72,7 +73,9 @@ export function apply(ctx: Context): void {
 		sctx.effect(() => {
 			const webServer = (sctx as unknown as { webServer: WebServerLike }).webServer;
 			const disposeConfig = registerConfigEndpoint(ctx, webServer, store !== void 0 ? (outcome) => store.record(outcome) : void 0);
-			const disposeObservability = store !== void 0 ? registerObservabilityEndpoints(store, webServer) : () => {};
+			const disposeObservability = store !== void 0
+				? registerObservabilityEndpoints(store, webServer, (sinceMs, untilMs) => importHistorical(store, { sinceMs, untilMs }))
+				: () => {};
 			return () => {
 				/** 撤销顺序与注册相反，便于诊断时按日志倒推。 */
 				disposeObservability();
@@ -120,6 +123,7 @@ export { USER_AGENT, httpErrorCode } from "./transport.ts";
 export { ObservationStore } from "./observability/store.ts";
 export { openObservationDatabase, observationDatabasePath, retain, SCHEMA_VERSION } from "./observability/schema.ts";
 export { registerObservabilityEndpoints } from "./observability/endpoint.ts";
+export { HISTORICAL_TARGET, importHistorical } from "./observability/import.ts";
 export { percentile, resolveRange, summarize } from "./observability/aggregate.ts";
 export { DiySearchProvider, OpenAiSearchProvider, PROVIDER_ID } from "./provider.ts";
 export { mapAnthropicResponse } from "./protocols/anthropic.ts";
