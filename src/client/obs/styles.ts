@@ -1,0 +1,112 @@
+/**
+ * 观测页样式，`dwsd-obs-*` 前缀；由 `styles.ts` 与卡片样式合并注入。
+ *
+ * 颜色全部来自 DSH 的 `--dsw-alias-*` token，状态不只靠颜色（圆点 + 文本）。
+ *
+ * @module dsh-web-search-diy/client/obs/styles
+ */
+export const OBS_CSS = [
+	/* 一级 tab */
+	".dwsd-page{display:flex;flex-direction:column;min-width:0}",
+	".dwsd-tabs{display:flex;gap:16px;border-bottom:.5px solid var(--dsw-alias-border-l2);margin:0 0 8px}",
+	".dwsd-tab{appearance:none;background:0 0;border:0;border-bottom:2px solid transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer;font:inherit;font-size:13px;font-weight:500;line-height:1.5;padding:8px 2px;margin-bottom:-1px}",
+	".dwsd-tab:hover{color:var(--dsw-alias-label-primary)}",
+	".dwsd-tabOn{color:var(--dsw-alias-label-primary);border-bottom-color:var(--dsw-alias-brand-primary)}",
+	".dwsd-tab:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}",
+	/* 容器与工具条 */
+	".dwsd-obs{display:flex;flex-direction:column;gap:12px;min-width:0;padding-bottom:8px}",
+	".dwsd-obs-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}",
+	".dwsd-obs-toolbarRight{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto}",
+	".dwsd-obs-segmented{display:inline-flex;background:var(--dsw-alias-bg-layer-4);border-radius:8px;padding:2px;gap:2px}",
+	".dwsd-obs-segment{appearance:none;background:0 0;border:0;border-radius:6px;color:var(--dsw-alias-label-secondary);cursor:pointer;font:inherit;font-size:12px;line-height:1.5;padding:4px 10px}",
+	".dwsd-obs-segmentOn{background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);box-shadow:0 1px 2px #00000014}",
+	".dwsd-obs-segment:focus-visible,.dwsd-obs-btn:focus-visible,.dwsd-obs-link:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}",
+	".dwsd-obs-filter{display:flex;align-items:center;gap:4px;min-width:0}",
+	".dwsd-obs-filterGrow{flex:1;min-width:160px}",
+	".dwsd-obs-filterLabel{color:var(--dsw-alias-label-tertiary);font-size:12px;white-space:nowrap}",
+	".dwsd-obs-input{border:.5px solid var(--dsw-alias-border-l4);background:var(--dsw-alias-bg-layer-3);height:28px;font:inherit;color:var(--dsw-alias-label-primary);border-radius:6px;padding:0 8px;font-size:12px;line-height:1.5;min-width:0}",
+	".dwsd-obs-input:focus-visible{border-color:var(--dsw-alias-brand-primary);outline:none}",
+	".dwsd-obs-check{display:inline-flex;align-items:center;gap:4px;color:var(--dsw-alias-label-secondary);font-size:12px;cursor:pointer;white-space:nowrap}",
+	".dwsd-obs-check input{accent-color:var(--dsw-alias-brand-primary);margin:0}",
+	".dwsd-obs-btn{appearance:none;font:inherit;cursor:pointer;border:.5px solid var(--dsw-alias-border-l2);border-radius:6px;color:var(--dsw-alias-label-secondary);background:0 0;padding:3px 10px;font-size:12px;line-height:1.5;text-decoration:none;white-space:nowrap}",
+	".dwsd-obs-btn:hover:not(:disabled){color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-dimmed)}",
+	".dwsd-obs-btn:disabled{opacity:.4;cursor:default}",
+	".dwsd-obs-link{appearance:none;background:0 0;border:0;color:var(--dsw-alias-brand-primary);cursor:pointer;font:inherit;font-size:12px;padding:0}",
+	/* 指标卡 */
+	".dwsd-obs-content{display:flex;flex-direction:column;gap:16px}",
+	".dwsd-obs-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:8px}",
+	".dwsd-obs-card{display:flex;flex-direction:column;gap:4px;border:.5px solid var(--dsw-alias-border-l2);border-radius:8px;padding:12px 16px;min-width:0}",
+	".dwsd-obs-cardLabel{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+	".dwsd-obs-cardValue{color:var(--dsw-alias-label-primary);font-size:24px;font-weight:600;line-height:1.25;font-variant-numeric:tabular-nums}",
+	/* 区块 */
+	".dwsd-obs-section{display:flex;flex-direction:column;gap:8px;min-width:0}",
+	".dwsd-obs-sectionHead{display:flex;align-items:baseline;justify-content:space-between;gap:8px}",
+	".dwsd-obs-sectionTitle{margin:0;color:var(--dsw-alias-label-primary);font-size:14px;font-weight:600;line-height:1.5}",
+	".dwsd-obs-caption{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}",
+	/* 表格 */
+	".dwsd-obs-tableWrap{overflow-x:auto;border:.5px solid var(--dsw-alias-border-l2);border-radius:8px}",
+	".dwsd-obs-table{border-collapse:collapse;width:100%;min-width:600px;font-size:13px;line-height:1.5}",
+	".dwsd-obs-table th{position:sticky;top:0;z-index:1;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-tertiary);font-size:12px;font-weight:500;letter-spacing:.02em;text-align:left;padding:8px 12px;border-bottom:.5px solid var(--dsw-alias-border-l2);white-space:nowrap}",
+	".dwsd-obs-table td{padding:0 12px;height:40px;color:var(--dsw-alias-label-primary);border-bottom:.5px solid var(--dsw-alias-border-l2);vertical-align:middle}",
+	".dwsd-obs-table tbody tr:last-child td{border-bottom:0}",
+	".dwsd-obs-num{text-align:right;font-variant-numeric:tabular-nums}",
+	".dwsd-obs-table th.dwsd-obs-num{text-align:right}",
+	".dwsd-obs-clickable{cursor:pointer}",
+	".dwsd-obs-clickable:hover td{background:var(--dsw-alias-bg-layer-4)}",
+	".dwsd-obs-clickable:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-2px}",
+	".dwsd-obs-targetCell{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;white-space:nowrap}",
+	".dwsd-obs-timeCell{white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary)}",
+	".dwsd-obs-queryCell{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+	/* 状态 */
+	".dwsd-obs-status{display:inline-flex;align-items:center;gap:4px;white-space:nowrap;color:var(--dsw-alias-label-primary);font-size:12px}",
+	".dwsd-obs-statusFail{color:var(--dsw-alias-label-error)}",
+	".dwsd-obs-dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--dsw-alias-brand-primary)}",
+	".dwsd-obs-dotFail{background:var(--dsw-alias-label-error)}",
+	/* 最近记录列表 */
+	".dwsd-obs-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}",
+	".dwsd-obs-listRow{display:grid;grid-template-columns:auto minmax(90px,auto) minmax(0,1fr) auto auto;align-items:center;gap:12px;padding:8px 0;border-bottom:.5px solid var(--dsw-alias-border-l2);font-size:13px;min-width:0}",
+	".dwsd-obs-listRow:last-child{border-bottom:0}",
+	".dwsd-obs-listTime{color:var(--dsw-alias-label-tertiary);font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}",
+	".dwsd-obs-listTarget{color:var(--dsw-alias-label-secondary);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;white-space:nowrap}",
+	".dwsd-obs-listQuery{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary)}",
+	".dwsd-obs-listMeta{color:var(--dsw-alias-label-tertiary);font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}",
+	/* 筛选 */
+	".dwsd-obs-filters{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap}",
+	/* 展开详情 */
+	".dwsd-obs-detailRow td{height:auto;padding:0;background:var(--dsw-alias-bg-layer-4)}",
+	".dwsd-obs-detail{display:flex;flex-direction:column;gap:8px;padding:12px 16px;font-size:12px;line-height:1.5}",
+	".dwsd-obs-detailError{margin:0;color:var(--dsw-alias-label-error);word-break:break-word}",
+	".dwsd-obs-detailMeta{display:flex;flex-wrap:wrap;gap:4px 16px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}",
+	".dwsd-obs-detailTitle{margin:0;color:var(--dsw-alias-label-secondary);font-weight:500}",
+	".dwsd-obs-sourceList{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}",
+	".dwsd-obs-sourceRow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}",
+	".dwsd-obs-sourceHost{color:var(--dsw-alias-label-primary);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;word-break:break-all}",
+	".dwsd-obs-sourceHash{color:var(--dsw-alias-label-tertiary);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}",
+	".dwsd-obs-marks{display:inline-flex;gap:4px;flex-wrap:wrap}",
+	".dwsd-obs-mark{background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary);border-radius:999px;padding:0 6px;font-size:11px;line-height:17px;white-space:nowrap}",
+	".dwsd-obs-detailActions{display:flex;gap:8px;justify-content:flex-end}",
+	".dwsd-obs-more{display:flex;justify-content:center;padding:8px}",
+	/* 空状态与骨架 */
+	".dwsd-obs-empty{display:flex;flex-direction:column;align-items:center;gap:4px;padding:32px 16px;text-align:center;border:.5px dashed var(--dsw-alias-border-l2);border-radius:8px}",
+	".dwsd-obs-emptyIcon{color:var(--dsw-alias-label-tertiary);font-size:24px;line-height:1}",
+	".dwsd-obs-emptyTitle{margin:4px 0 0;color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500}",
+	".dwsd-obs-hint{margin:0;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:1.5}",
+	".dwsd-obs-skeletonRows{display:flex;flex-direction:column;gap:8px}",
+	".dwsd-obs-skeleton{display:block;border-radius:6px;background:var(--dsw-alias-bg-layer-4);animation:dwsd-obs-pulse 1.2s ease-in-out infinite}",
+	".dwsd-obs-skeletonLabel{width:60%;height:12px}",
+	".dwsd-obs-skeletonValue{width:80%;height:24px}",
+	".dwsd-obs-skeletonRow{width:100%;height:36px}",
+	"@keyframes dwsd-obs-pulse{0%,100%{opacity:.55}50%{opacity:.9}}",
+	/* 横幅与 toast */
+	".dwsd-obs-banner{display:flex;align-items:center;gap:8px;justify-content:space-between;border:.5px solid var(--dsw-alias-label-error);border-radius:8px;padding:8px 12px}",
+	".dwsd-obs-bannerText{color:var(--dsw-alias-label-error);font-size:12px;line-height:1.5;min-width:0;word-break:break-word}",
+	".dwsd-obs-toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-3);border-radius:8px;padding:6px 14px;font-size:12px;line-height:1.5;z-index:50;pointer-events:none}",
+	/* 数据管理 */
+	".dwsd-obs-data{border-top:.5px solid var(--dsw-alias-border-l2);padding-top:8px;margin-top:4px}",
+	".dwsd-obs-data>summary{cursor:pointer;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1.5;padding:4px 0}",
+	".dwsd-obs-data>summary:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}",
+	".dwsd-obs-clearRow{display:flex;align-items:center;gap:8px;margin:8px 0 4px}",
+	/* 窄容器：表格自身滚动，首列与表头保持可读 */
+	"@media (max-width:480px){.dwsd-obs-toolbarRight{width:100%;margin-left:0}.dwsd-obs-listRow{grid-template-columns:auto minmax(0,1fr) auto auto}.dwsd-obs-listQuery{display:none}}",
+	"@media (prefers-reduced-motion:reduce){.dwsd-obs-skeleton{animation:none}}"
+].join("");

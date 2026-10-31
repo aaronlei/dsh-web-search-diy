@@ -3,9 +3,10 @@
  * `dwsd-` prefix and are installed idempotently from the plugin effect.
  */
 import { ID } from "./consts.ts";
+import { OBS_CSS } from "./obs/styles.ts";
 
 /** Styles mirroring the official card rules under our own `dwsd-` prefix. */
-export const CARD_CSS = [
+const BASE_CSS = [
 	".dwsd-body{margin:0;padding-bottom:8px}",
 	".dwsd-status{color:var(--dsw-alias-label-tertiary);margin:12px 0 0;font-size:12px;line-height:1.5}",
 	".dwsd-footer{border-top:.5px solid var(--dsw-alias-border-l2);justify-content:flex-end;align-items:center;gap:8px;padding:12px 0 4px;display:flex}",
@@ -56,6 +57,8 @@ export const CARD_CSS = [
 	".dwsd-notice{margin:0 0 4px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:1.5}",
 	".dwsd-confirm{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}"
 ].join("");
+/** 卡片样式与观测页样式在同一个 style 标签里注入。 */
+export const CARD_CSS = BASE_CSS + OBS_CSS;
 /** Idempotently install the card stylesheet into the document head. */
 export function injectStyles(): void {
 	if (typeof document === "undefined") return;

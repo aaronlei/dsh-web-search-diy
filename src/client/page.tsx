@@ -19,6 +19,7 @@ import {
 import { defaultText, fillFromTemplate, seedFromTemplate, stagedValue, toDraft, wireValue } from "./draft.ts";
 import { PROTOCOLS, protocolLabel, supportLabel, vendorLabel } from "./labels.ts";
 import { ChoiceField, ComboField, SecretField, SelectField, SwitchField, ValueField } from "./fields.tsx";
+import { ObsPage } from "./obs/page.tsx";
 
 /** DOM id prefix for every control the card renders. */
 const ID_PREFIX = "plugin-config-web-search-diy-";
@@ -526,6 +527,41 @@ export function ConfigPage({ t }: { t: (key: string) => string }) {
 				<button type="button" className="dwsd-discard" disabled={!dirty || saving} onClick={discard}>{t("discard")}</button>
 				<button type="button" className="dwsd-save" disabled={!dirty || saving || hasInvalid || entry?.support === "unsupported"} onClick={() => { void save(); }}>{t(saving ? "saving" : "save")}</button>
 			</div>
+		</div>
+	);
+}
+
+/** 一级 tab：配置与观测；观测页只在切到时挂载，避免打开配置页就读观测库。 */
+export function PluginPage({ t }: { t: (key: string) => string }) {
+	const [tab, setTab] = react.useState<"config" | "observability">("config");
+	const tabs = ["config", "observability"] as const;
+	return (
+		<div className="dwsd-page">
+			<div
+				className="dwsd-tabs"
+				role="tablist"
+				aria-label={t("tabNav")}
+				onKeyDown={(event) => {
+					if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+					const index = tabs.indexOf(tab);
+					const step = event.key === "ArrowRight" ? 1 : tabs.length - 1;
+					setTab(tabs[(index + step) % tabs.length]);
+				}}
+			>
+				{tabs.map((value) => (
+					<button
+						key={value}
+						type="button"
+						role="tab"
+						aria-selected={tab === value}
+						className={tab === value ? "dwsd-tab dwsd-tabOn" : "dwsd-tab"}
+						onClick={() => { setTab(value); }}
+					>
+						{value === "config" ? t("tabConfig") : t("tabObservability")}
+					</button>
+				))}
+			</div>
+			{tab === "config" ? <ConfigPage t={t} /> : <ObsPage t={t} />}
 		</div>
 	);
 }

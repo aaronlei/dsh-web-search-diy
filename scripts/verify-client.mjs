@@ -19,18 +19,23 @@ import { readFileSync } from "node:fs";
 
 // --- fake react / jsx-runtime -------------------------------------------------
 let hookIndex = 0;
+/** Hook slots of the component currently rendering. */
 let hookState = [];
+/** Per-component hook slots, keyed by the function reference (React's fiber identity). */
+let hookStateMap = new Map();
 let pendingEffects = [];
 /** Cleanups returned by effects run during `open()`, so the unmount path is testable. */
 let pendingCleanups = [];
 const fakeReact = {
 	useState: (init) => {
+		/** Capture the slot array: an effect may call the setter after the component's render scope ended. */
+		const slots = hookState;
 		const index = hookIndex++;
-		if (!(index in hookState)) hookState[index] = typeof init === "function" ? init() : init;
+		if (!(index in slots)) slots[index] = typeof init === "function" ? init() : init;
 		const set = (value) => {
-			hookState[index] = typeof value === "function" ? value(hookState[index]) : value;
+			slots[index] = typeof value === "function" ? value(slots[index]) : value;
 		};
-		return [hookState[index], set];
+		return [slots[index], set];
 	},
 	useEffect: (fn) => {
 		pendingEffects.push(fn);
@@ -38,9 +43,10 @@ const fakeReact = {
 	useCallback: (fn) => fn,
 	useMemo: (fn) => fn(),
 	useRef: (init) => {
+		const slots = hookState;
 		const index = hookIndex++;
-		if (!(index in hookState)) hookState[index] = { current: init };
-		return hookState[index];
+		if (!(index in slots)) slots[index] = { current: init };
+		return slots[index];
 	}
 };
 const fakeJsx = (type, props, key) => ({ $$type: "jsx", type, props, key });
@@ -61,8 +67,30 @@ let postedBody = null;
 let lastGetInit = null;
 /** When set, the next POST is rejected with this error instead of succeeding. */
 let postFailure = null;
+/** Observation fixtures; enabled once the observability section runs. */
+let observationFixtures = null;
+/** The last `/observability/records` URL, for filter assertions. */
+let lastRecordsUrl = null;
+/** Set when the page sends DELETE /observability/records. */
+let observationCleared = false;
+
+/** JSON response double. */
+const jsonResponse = (body) => ({ ok: true, status: 200, json: async () => body });
 
 globalThis.fetch = async (url, init) => {
+	const target = String(url);
+	if (observationFixtures !== null && target.includes("/observability/")) {
+		if (target.includes("/observability/summary")) return jsonResponse(observationFixtures.summary);
+		if (target.includes("/observability/records")) {
+			if (init?.method === "DELETE") {
+				observationCleared = true;
+				return jsonResponse({ ok: true, deleted: 1 });
+			}
+			lastRecordsUrl = target;
+			return jsonResponse(observationFixtures.records);
+		}
+		return jsonResponse({});
+	}
 	if (init?.method === "POST") {
 		postedBody = JSON.parse(init.body);
 		if (postFailure !== null) {
@@ -287,10 +315,45 @@ const basePayload = {
 };
 
 // --- render helpers -----------------------------------------------------------
+/**
+ * Expand function components into their rendered tree, mirroring React's
+ * parent-then-child order. Hooks stay index-based per render, so a component's
+ * state survives a re-render exactly as it does in the browser.
+ */
+function expand(node) {
+	if (node === null || node === void 0 || typeof node !== "object") return node;
+	if (Array.isArray(node)) return node.map(expand);
+	if (typeof node.type === "function") {
+		/** Swap in this component's own slots so two components never share state by index. */
+		const previousState = hookState;
+		const previousIndex = hookIndex;
+		let slots = hookStateMap.get(node.type);
+		if (slots === void 0) {
+			slots = [];
+			hookStateMap.set(node.type, slots);
+		}
+		hookState = slots;
+		hookIndex = 0;
+		let rendered;
+		try {
+			rendered = expand(node.type(node.props ?? {}));
+		} finally {
+			hookState = previousState;
+			hookIndex = previousIndex;
+		}
+		/** Keep the component props (id/text/value/stateLabel) on the expanded node, like the old flat tree. */
+		if (typeof node.props?.id === "string" && rendered !== null && typeof rendered === "object" && !Array.isArray(rendered)) {
+			return { ...rendered, props: { ...rendered.props, ...node.props } };
+		}
+		return rendered;
+	}
+	if (node.props?.children !== void 0) return { ...node, props: { ...node.props, children: expand(node.props.children) } };
+	return node;
+}
 function render(runEffects) {
 	hookIndex = 0;
 	pendingEffects = [];
-	const tree = page.type({ t });
+	const tree = expand(page.type({ t }));
 	if (runEffects) for (const fn of pendingEffects) {
 		const cleanup = fn();
 		if (typeof cleanup === "function") pendingCleanups.push(cleanup);
@@ -387,6 +450,7 @@ function failedTextOf(tree) {
 async function open(payload) {
 	storedConfig = payload;
 	postedBody = null;
+	hookStateMap = new Map();
 	hookState = [];
 	pendingCleanups = [];
 	render(true);
@@ -617,6 +681,133 @@ if (lastGetInit.signal.aborted) throw new Error("the snapshot load must not be a
 loadCleanup();
 if (!lastGetInit.signal.aborted) throw new Error("unmount must abort the in-flight snapshot request");
 console.log("unmount aborts the snapshot load request");
+
+// --- observability page --------------------------------------------------------
+/** Nodes whose className contains one token. */
+function nodesOfClass(tree, token) {
+	const found = [];
+	const walk = (node) => {
+		if (node == null || typeof node !== "object") return;
+		if (Array.isArray(node)) { for (const child of node) walk(child); return; }
+		const className = node.props?.className;
+		if (typeof className === "string" && className.split(/\s+/u).includes(token)) found.push(node);
+		if (node.props?.children !== void 0) walk(node.props.children);
+	};
+	walk(tree);
+	return found;
+}
+/** Flattened text of a node (children only). */
+function textOfNode(node) {
+	return textOf(node?.props?.children);
+}
+/** Every string below a node, including nested elements. */
+function allText(tree) {
+	let text = "";
+	const walk = (node) => {
+		if (node == null) return;
+		if (typeof node === "string" || typeof node === "number") {
+			text += String(node);
+			return;
+		}
+		if (Array.isArray(node)) {
+			for (const child of node) walk(child);
+			return;
+		}
+		if (typeof node === "object" && node.props?.children !== void 0) walk(node.props.children);
+	};
+	walk(tree);
+	return text;
+}
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+observationFixtures = {
+	summary: {
+		range: { since: "2026-10-31T00:00:00.000Z", until: "2026-10-31T12:00:00.000Z" },
+		totals: { count: 12, successRate: 0.92, p50: 1200, p95: 4200, avgSources: 5.8, summaryCoverage: 0.78, errorCount: 1 },
+		byTarget: [
+			{ target: "deepseek/search", count: 8, successRate: 0.95, p50: 1100, p95: 3100, avgSources: 6.2, summaryCoverage: 0.91, errorCount: 0 },
+			{ target: "zhipu/search", count: 4, successRate: 0.87, p50: 2400, p95: 4800, avgSources: 4.9, summaryCoverage: 0.64, errorCount: 1 }
+		],
+		byBucket: [],
+		topErrors: [{ code: "WEB_PROVIDER_RATE_LIMIT", count: 1, lastMessage: "HTTP 429" }]
+	},
+	records: {
+		records: [{
+			v: 1,
+			id: "rec-1",
+			at: "2026-10-31T10:42:13.000Z",
+			kind: "search",
+			target: "deepseek/search",
+			vendor: "deepseek",
+			protocol: "search",
+			query: "DeepSeek API 文档",
+			ok: true,
+			durationMs: 3100,
+			sourceCount: 2,
+			withTitle: 2,
+			withSnippet: 2,
+			withSummary: 1,
+			summaryChars: 1200,
+			answerChars: 1601,
+			truncated: false,
+			sources: [
+				{ observationId: "rec-1", urlHash: "0123456789abcdef", host: "api-docs.deepseek.com", hasTitle: true, hasSnippet: true, hasSummary: true },
+				{ observationId: "rec-1", urlHash: "fedcba9876543210", host: "github.com", hasTitle: false, hasSnippet: true, hasSummary: false }
+			]
+		}],
+		nextBefore: null
+	}
+};
+
+const obsStart = await open(basePayload);
+const obsTab = nodesOfClass(obsStart.tree, "dwsd-tab").find((node) => textOfNode(node) === "观测");
+if (obsTab === void 0) throw new Error("the page must expose an observability tab");
+if (typeof obsTab.props.onClick !== "function") throw new Error("the observability tab must be clickable");
+obsTab.props.onClick();
+render(true);
+await tick();
+let obsTree = render(false);
+const metricCards = nodesOfClass(obsTree, "dwsd-obs-card");
+expectEqual(metricCards.length, 5, "the overview renders five metric cards");
+const metricValues = metricCards.map((node) => textOfNode(nodesOfClass(node, "dwsd-obs-cardValue")[0])).join(" ");
+if (!metricValues.includes("92%")) throw new Error(`the success rate must render as a percentage, got: ${metricValues}`);
+if (!metricValues.includes("4.2s")) throw new Error(`P95 must render in seconds, got: ${metricValues}`);
+if (!metricValues.includes("5.8")) throw new Error(`the average source count must render, got: ${metricValues}`);
+console.log("overview renders the metric cards from the summary endpoint");
+
+const rankingRows = nodesOfClass(obsTree, "dwsd-obs-clickable");
+if (rankingRows.length === 0) throw new Error("the target ranking should render clickable rows");
+rankingRows[0].props.onClick();
+render(true);
+await tick();
+obsTree = render(false);
+if (lastRecordsUrl === null || !lastRecordsUrl.includes("target=deepseek%2Fsearch")) throw new Error(`opening a target must filter records, got ${lastRecordsUrl}`);
+const recordRows = nodesOfClass(obsTree, "dwsd-obs-clickable");
+if (recordRows.length === 0) throw new Error("the records page should render rows");
+recordRows[0].props.onClick();
+obsTree = render(false);
+if (!allText(obsTree).includes("api-docs.deepseek.com")) throw new Error("an expanded record must list its source hosts");
+if (!allText(obsTree).includes("github.com")) throw new Error("every source host must be listed");
+if (!allText(obsTree).includes("复制 JSON")) throw new Error("the expanded record must offer a JSON copy");
+console.log("a target row opens the records page filtered, and a row expands to its sources");
+
+const clearInput = nodesOfClass(obsTree, "dwsd-obs-input").find((node) => node.props.placeholder === "输入 DELETE");
+if (clearInput === void 0) throw new Error("data management must offer a confirmation input");
+const clearButton = nodesOfClass(obsTree, "dwsd-obs-btn").find((node) => textOfNode(node) === "清空观测数据");
+if (clearButton === void 0) throw new Error("data management must offer a clear button");
+expectEqual(clearButton.props.disabled, true, "clearing stays disabled before the confirmation");
+clearInput.props.onChange({ target: { value: "DELETE" } });
+obsTree = render(false);
+const armedClear = nodesOfClass(obsTree, "dwsd-obs-btn").find((node) => textOfNode(node) === "清空观测数据");
+expectEqual(armedClear.props.disabled, false, "typing DELETE arms the clear button");
+armedClear.props.onClick();
+await tick();
+obsTree = render(false);
+if (!observationCleared) throw new Error("the clear button must send the DELETE request");
+if (!allText(obsTree).includes("已清空 1 条记录")) throw new Error("clearing must report the deleted count");
+console.log("clearing observations requires the typed confirmation and reports the count");
+
+observationFixtures = null;
 
 console.log("missing t() keys:", [...missing]);
 if (missing.size > 0) throw new Error("missing locale keys");

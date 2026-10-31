@@ -17,7 +17,7 @@
  */
 import { ID, NS } from "./consts.ts";
 import type { PluginContext } from "./types.ts";
-import { ConfigPage } from "./page.tsx";
+import { PluginPage } from "./page.tsx";
 import { injectStyles } from "./styles.ts";
 import { ALL_LOCALES } from "./locale.ts";
 
@@ -43,7 +43,7 @@ function apply(ctx: PluginContext): void {
 			name: "plugins.bundle.config",
 			key: ID,
 			locale: NS
-		}, (props) => props.view === "summary" ? props.t("description") : <ConfigPage t={props.t} />));
+		}, (props) => props.view === "summary" ? props.t("description") : <PluginPage t={props.t} />));
 	}, `${ID}: plugins.bundle.config registration`);
 }
 //#endregion
