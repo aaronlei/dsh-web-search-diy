@@ -74,7 +74,11 @@ export function apply(ctx: Context): void {
 			const webServer = (sctx as unknown as { webServer: WebServerLike }).webServer;
 			const disposeConfig = registerConfigEndpoint(ctx, webServer, store !== void 0 ? (outcome) => store.record(outcome) : void 0);
 			const disposeObservability = store !== void 0
-				? registerObservabilityEndpoints(store, webServer, (sinceMs, untilMs) => importHistorical(store, { sinceMs, untilMs }))
+				? registerObservabilityEndpoints(store, webServer, (sinceMs, untilMs, onProgress) => importHistorical(store, {
+					sinceMs,
+					untilMs,
+					...(onProgress !== void 0 ? { onProgress } : {})
+				}))
 				: () => {};
 			return () => {
 				/** 撤销顺序与注册相反，便于诊断时按日志倒推。 */

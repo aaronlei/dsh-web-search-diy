@@ -118,6 +118,16 @@ export interface SummaryTotals {
 	/** 0–1 的摘要覆盖率；无来源时 null。 */
 	readonly summaryCoverage: number | null;
 	readonly errorCount: number;
+	/** 成功记录里没有任何来源的比例；无成功记录时 0。 */
+	readonly emptySourceRate: number;
+	/** 成功记录里答案正文为空的比例；无成功记录时 0。 */
+	readonly emptyAnswerRate: number;
+	/** 被 seam/tool 层截断的记录比例。 */
+	readonly truncatedRate: number;
+	/** 超时失败数。 */
+	readonly timeoutCount: number;
+	/** 超时失败占全部记录的比例。 */
+	readonly timeoutRate: number;
 }
 
 /** 一个 target 的汇总。 */
@@ -131,6 +141,8 @@ export interface BucketSummary {
 	readonly count: number;
 	readonly successRate: number | null;
 	readonly p95: number | null;
+	/** 该桶的失败记录数。 */
+	readonly errorCount: number;
 }
 
 /** 失败码计数与最近一条消息。 */
@@ -140,6 +152,23 @@ export interface TopError {
 	readonly lastMessage: string;
 }
 
+/** 一个来源域名的出现次数。 */
+export interface HostSummary {
+	readonly host: string;
+	readonly count: number;
+}
+
+/** 观测库的存储状态；`bytes` 含主库与 WAL/SHM 伴生文件。 */
+export interface StorageStats {
+	readonly bytes: number;
+	readonly rows: number;
+	readonly sources: number;
+	/** 最早一条记录的 `at`；空库为 null。 */
+	readonly oldest: string | null;
+	/** 最新一条记录的 `at`；空库为 null。 */
+	readonly newest: string | null;
+}
+
 /** GET /observability/summary 的响应。 */
 export interface ObservabilitySummary {
 	readonly range: { readonly since: string; readonly until: string };
@@ -147,6 +176,8 @@ export interface ObservabilitySummary {
 	readonly byTarget: readonly TargetSummary[];
 	readonly byBucket: readonly BucketSummary[];
 	readonly topErrors: readonly TopError[];
+	/** 来源域名 Top 10；跟随当前筛选范围。 */
+	readonly topHosts: readonly HostSummary[];
 }
 
 /** summary / export 共用的范围参数。 */
@@ -166,6 +197,8 @@ export interface RecordsQuery extends RangeQuery {
 	/** 页码，从 1 开始；超出范围时由存储夹紧到最后一页。 */
 	readonly page?: number;
 	readonly status?: "ok" | "fail";
+	/** 失败码精确筛选；只在 status 为 fail 或全部时有意义。 */
+	readonly errorCode?: string;
 	/** 搜索词子串，忽略大小写。 */
 	readonly query?: string;
 }

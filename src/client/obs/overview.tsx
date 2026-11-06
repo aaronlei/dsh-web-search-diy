@@ -6,7 +6,7 @@
  * @module dsh-web-search-diy/client/obs/overview
  */
 import type { SummaryResponse } from "./types.ts";
-import { durationOf, numberOf, percentOf, targetLabelOf } from "./format.ts";
+import { durationOf, numberOf, percentOf, queryOf, targetLabelOf } from "./format.ts";
 import { TrendChart } from "./charts.tsx";
 import { EmptyState, ErrorBanner, MetricCard, MetricSkeleton, TableSkeleton } from "./shared.tsx";
 
@@ -20,6 +20,7 @@ export interface OverviewProps {
 	readonly filtered: boolean;
 	readonly onRefresh: () => void;
 	readonly onOpenTarget: (target: string) => void;
+	readonly onOpenError: (code: string) => void;
 	readonly onClearFilters: () => void;
 }
 
@@ -73,6 +74,77 @@ function TargetRanking({ t, summary, onOpenTarget }: { t: (key: string) => strin
 	);
 }
 
+/** The failure-code ranking; clicking a row opens the records view filtered by that code. */
+function ErrorRanking({ t, summary, onOpenError }: { t: (key: string) => string; summary: SummaryResponse; onOpenError: (code: string) => void }) {
+	if (summary.topErrors.length === 0) return null;
+	return (
+		<section className="dwsd-obs-section">
+			<h3 className="dwsd-obs-sectionTitle">{t("obsErrorRanking")}</h3>
+			<div className="dwsd-obs-tableWrap">
+				<table className="dwsd-obs-table">
+					<caption className="dwsd-obs-caption">{t("obsErrorRanking")}</caption>
+					<thead>
+						<tr>
+							<th scope="col">{t("obsErrorCode")}</th>
+							<th scope="col" className="dwsd-obs-num">{t("obsErrorCount")}</th>
+							<th scope="col">{t("obsErrorLastMessage")}</th>
+						</tr>
+					</thead>
+					<tbody>
+						{summary.topErrors.map((row) => (
+							<tr
+								key={row.code}
+								className="dwsd-obs-clickable"
+								tabIndex={0}
+								onClick={() => { onOpenError(row.code); }}
+								onKeyDown={(event) => {
+									if (event.key === "Enter" || event.key === " ") {
+										event.preventDefault();
+										onOpenError(row.code);
+									}
+								}}
+							>
+								<td className="dwsd-obs-targetCell">{row.code}</td>
+								<td className="dwsd-obs-num">{numberOf(row.count)}</td>
+								<td className="dwsd-obs-queryCell">{queryOf(row.lastMessage, 60)}</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
+			</div>
+		</section>
+	);
+}
+
+/** The source-domain ranking; follows the active filters. */
+function HostRanking({ t, summary }: { t: (key: string) => string; summary: SummaryResponse }) {
+	if (summary.topHosts.length === 0) return null;
+	return (
+		<section className="dwsd-obs-section">
+			<h3 className="dwsd-obs-sectionTitle">{t("obsHostRanking")}</h3>
+			<div className="dwsd-obs-tableWrap">
+				<table className="dwsd-obs-table">
+					<caption className="dwsd-obs-caption">{t("obsHostRanking")}</caption>
+					<thead>
+						<tr>
+							<th scope="col">{t("obsHostDomain")}</th>
+							<th scope="col" className="dwsd-obs-num">{t("obsHostSources")}</th>
+						</tr>
+					</thead>
+					<tbody>
+						{summary.topHosts.map((row) => (
+							<tr key={row.host}>
+								<td className="dwsd-obs-targetCell">{row.host}</td>
+								<td className="dwsd-obs-num">{numberOf(row.count)}</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
+			</div>
+		</section>
+	);
+}
+
 /** The overview view. */
 export function Overview(props: OverviewProps) {
 	const { t, summary } = props;
@@ -90,13 +162,23 @@ export function Overview(props: OverviewProps) {
 							<MetricCard label={t("obsMetricP95")} value={durationOf(summary.totals.p95)} />
 							<MetricCard label={t("obsMetricSources")} value={numberOf(summary.totals.avgSources, 1)} />
 							<MetricCard label={t("obsMetricSummary")} value={percentOf(summary.totals.summaryCoverage)} />
+							<MetricCard label={t("obsMetricEmptySource")} value={percentOf(summary.totals.emptySourceRate)} />
+							<MetricCard label={t("obsMetricEmptyAnswer")} value={percentOf(summary.totals.emptyAnswerRate)} />
+							<MetricCard label={t("obsMetricTruncated")} value={percentOf(summary.totals.truncatedRate)} />
+							<MetricCard label={t("obsMetricTimeout")} value={percentOf(summary.totals.timeoutRate)} />
 						</div>
 						<TrendChart t={t} buckets={summary.byBucket} />
 						{summary.totals.count === 0
 							? props.filtered
 								? <EmptyState t={t} title={t("obsEmptyFiltered")} hint={t("obsEmptyFilteredHint")} actionLabel={t("obsClearFilters")} onAction={props.onClearFilters} />
 								: <EmptyState t={t} title={t("obsEmpty")} hint={t("obsEmptyHint")} />
-							: <TargetRanking t={t} summary={summary} onOpenTarget={props.onOpenTarget} />}
+							: (
+								<>
+									<TargetRanking t={t} summary={summary} onOpenTarget={props.onOpenTarget} />
+									<ErrorRanking t={t} summary={summary} onOpenError={props.onOpenError} />
+									<HostRanking t={t} summary={summary} />
+								</>
+							)}
 					</div>
 				)}
 		</div>

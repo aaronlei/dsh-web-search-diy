@@ -5,6 +5,73 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.1] - 2026-11-07
+
+### Added
+
+- **Failure-code ranking and filtering.** The overview renders `topErrors` as a
+  table; selecting a row opens the records view pre-filtered by that code, and
+  `GET /observability/records` accepts an `errorCode` parameter. The records
+  toolbar gains a matching error-code select.
+- **Background historical import with progress.** `POST /observability/import`
+  accepts `{ "async": true }` and returns 202; `GET
+  /observability/import/status` reports `done`/`total` and the final result, so
+  the page polls instead of holding one long request open.
+- **Quality and reliability metrics.** The overview now shows empty-source,
+  empty-answer, truncated and timeout rates; the trend chart draws a per-bucket
+  error-count bar and its tooltip reports the count, with
+  `summary.byBucket[].errorCount` on the wire.
+- **Data-health panel and source-domain ranking.** The data-management section
+  shows the database size (main + WAL/SHM), record and source-row counts, and
+  the oldest/newest record timestamps through `GET /observability/storage`; the
+  overview ranks the top source domains for the active filters
+  (`summary.topHosts`).
+
+### Changed
+
+- **DSH baseline aligned with 0.2.2-rc.1.** `devDependencies` and the lockfile
+  now build against `@deepseek-ai/*` 0.2.2-rc.1 and cordis `~4.1.0`. The
+  `peerDependencies` ranges list `^0.2.2-rc.1` explicitly; the existing
+  `^0.2.2-alpha.2` range already admitted it.
+- **Removed `@deepseek-ai/dsh-client-ui-slots` from `dsh.client.inject`.**
+  0.2.2-rc.1 no longer ships that package as a client graph row, so the entry
+  was a no-op (unknown inject names are ignored by the browser loader). The
+  slot dependency is carried by the Cordis service injection
+  (`inject = ["slots", "locale"]`).
+- **Historical import skips files older than the range start.** Session files
+  whose mtime precedes `since` are skipped before decompression, so importing a
+  recent window no longer parses every old session log.
+- **Clearing observations reclaims disk space.** `clear()` runs `VACUUM` after
+  the delete, and the startup retention pass counts rows first, skipping the
+  full-table DELETE while the store is under the 50,000-row cap.
+
+### Fixed
+
+- **Export no longer fails past the SQLite variable limit.** Source rows are
+  fetched in batches of 900 ids, so exporting up to the 50,000-row retention
+  cap works; previously a single `IN (?,…)` with more than 32,766 records threw
+  `too many SQL variables` and the endpoint returned 500.
+- **Trend buckets start at the requested range.** `buildBuckets` anchors on the
+  range start instead of the UTC epoch, so a local `today` window no longer
+  shows its first day bucket at 08:00 in UTC+8 (and non-hour-offset zones no
+  longer drift on hour buckets either).
+- **Summary reads narrow columns.** The overview query no longer loads `answer`
+  text for every row in range, keeping memory flat when the store holds tens of
+  thousands of records.
+- **Trend chart fills its container.** The SVG measures the chart's content
+  box with a `ResizeObserver` instead of drawing on a fixed 640px viewBox, so
+  wide layouts no longer leave empty space beside the plot; the time-axis
+  labels keep the date (`MM-DD HH:MM`) for multi-day ranges.
+- **CSV exports neutralize spreadsheet formulas.** Cells starting with `=`,
+  `+`, `-`, `@`, tab, or CR get a leading apostrophe, so untrusted page titles
+  cannot execute as formulas when the file is opened in a spreadsheet.
+
+### Verified
+
+- No code change was needed for 0.2.2-rc.1: `ctx.web.registerSearchProvider`,
+  the `webServer` routes, the `plugins.bundle.config` keyed slot (page view),
+  and the `locale.register(ns, dicts)` overload keep their shapes.
+
 ## [2.1.0] - 2026-10-31
 
 ### Added

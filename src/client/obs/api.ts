@@ -5,7 +5,7 @@
  *
  * @module dsh-web-search-diy/client/obs/api
  */
-import type { Filters, RecordsResponse, StatusKey, SummaryResponse, TimeRange } from "./types.ts";
+import type { Filters, RecordsResponse, StatusKey, StorageStats, SummaryResponse, TimeRange } from "./types.ts";
 import { sinceOf, untilOf } from "./range.ts";
 
 /** Host 观测端点前缀。 */
@@ -19,6 +19,7 @@ function queryOf(filters: Filters, extra: Record<string, string | undefined> = {
 	if (until !== void 0) params.set("until", until);
 	if (filters.target.length > 0) params.set("target", filters.target);
 	if (filters.includeTests) params.set("includeTests", "true");
+	if (filters.errorCode.length > 0) params.set("errorCode", filters.errorCode);
 	for (const [key, value] of Object.entries(extra)) {
 		if (value !== void 0 && value.length > 0) params.set(key, value);
 	}
@@ -44,6 +45,12 @@ async function readJson<T>(response: Response): Promise<T> {
 export async function fetchSummary(filters: Filters, signal?: AbortSignal): Promise<SummaryResponse> {
 	const response = await fetch(`${OBS_BASE}/summary?${queryOf(filters)}`, { headers: { accept: "application/json" }, ...(signal !== void 0 ? { signal } : {}) });
 	return await readJson<SummaryResponse>(response);
+}
+
+/** 拉取观测库的存储状态。 */
+export async function fetchStorage(signal?: AbortSignal): Promise<StorageStats> {
+	const response = await fetch(`${OBS_BASE}/storage`, { headers: { accept: "application/json" }, ...(signal !== void 0 ? { signal } : {}) });
+	return await readJson<StorageStats>(response);
 }
 
 /** 拉取一页记录；页码从 1 开始。 */
@@ -79,14 +86,30 @@ export interface ImportResult {
 	readonly updated: number;
 }
 
-export async function importHistory(range: TimeRange): Promise<ImportResult> {
+/** 后台导入的进度快照。 */
+export interface ImportStatus {
+	readonly state: "idle" | "running" | "done" | "failed";
+	readonly done: number;
+	readonly total: number;
+	readonly result?: ImportResult;
+	readonly error?: string;
+}
+
+/** 启动一次后台导入；用 {@link fetchImportStatus} 轮询进度。 */
+export async function startImport(range: TimeRange): Promise<void> {
 	const until = untilOf(range);
 	const response = await fetch(`${OBS_BASE}/import`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ since: sinceOf(range), ...(until !== void 0 ? { until } : {}) })
+		body: JSON.stringify({ since: sinceOf(range), ...(until !== void 0 ? { until } : {}), async: true })
 	});
-	return await readJson<ImportResult>(response);
+	await readJson<{ accepted?: boolean }>(response);
+}
+
+/** 读取后台导入的进度与结果。 */
+export async function fetchImportStatus(): Promise<ImportStatus> {
+	const response = await fetch(`${OBS_BASE}/import/status`, { headers: { accept: "application/json" } });
+	return await readJson<ImportStatus>(response);
 }
 
 /** 清空全部观测记录；返回删除条数。 */

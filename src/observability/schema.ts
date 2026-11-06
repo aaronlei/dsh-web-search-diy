@@ -12,7 +12,7 @@ import { homedir } from "node:os";
 import type { DatabaseLike } from "./types.ts";
 
 /** 当前 schema 版本；写入 `PRAGMA user_version`。 */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /** 保留条数上限：50,000 条；导入的历史记录同样受此上限约束。 */
 export const RETENTION_ROWS = 50_000;
@@ -79,6 +79,11 @@ ALTER TABLE observation_sources ADD COLUMN snippet TEXT;
 ALTER TABLE observation_sources ADD COLUMN summary TEXT;
 `;
 
+/** v3：来源域名排行按 host 分组，补一条覆盖索引避免每次汇总都建临时表。 */
+const SCHEMA_V3 = `
+CREATE INDEX IF NOT EXISTS idx_sources_host ON observation_sources(host);
+`;
+
 /** 读取当前 schema 版本。 */
 function readUserVersion(db: DatabaseLike): number {
 	try {
@@ -101,6 +106,7 @@ export function migrate(db: DatabaseLike): void {
 	try {
 		if (version < 1) db.exec(SCHEMA_V1);
 		if (version < 2) db.exec(SCHEMA_V2);
+		if (version < 3) db.exec(SCHEMA_V3);
 		db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
 		db.exec("COMMIT");
 	} catch (error) {
@@ -121,6 +127,9 @@ export function migrate(db: DatabaseLike): void {
  * @returns 删除的观测条数。
  */
 export function retain(db: DatabaseLike): number {
+	/** 先计数：未超过上限时不做整表排序的 DELETE，启动路径保持常量级。 */
+	const row = db.prepare("SELECT COUNT(*) AS total FROM observations").get() as { total?: unknown } | undefined;
+	if (Number(row?.total ?? 0) <= RETENTION_ROWS) return 0;
 	const overflow = db.prepare("DELETE FROM observations WHERE id NOT IN (SELECT id FROM observations ORDER BY at DESC LIMIT ?)").run(RETENTION_ROWS);
 	return Number(overflow.changes);
 }

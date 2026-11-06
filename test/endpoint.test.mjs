@@ -324,8 +324,10 @@ describe("plugin lifecycle", () => {
 			"/api/web-search-diy/config",
 			"/api/web-search-diy/test",
 			"/api/web-search-diy/observability/summary",
+			"/api/web-search-diy/observability/storage",
 			"/api/web-search-diy/observability/export",
 			"/api/web-search-diy/observability/import",
+			"/api/web-search-diy/observability/import/status",
 			"/api/web-search-diy/observability/records"
 		]);
 		for (const dispose of disposers) dispose();

@@ -26,6 +26,20 @@ export function numberOf(value: number, fractionDigits = 0): string {
 	return new Intl.NumberFormat(undefined, { maximumFractionDigits: fractionDigits, minimumFractionDigits: fractionDigits }).format(value);
 }
 
+/** 字节大小：B / KB / MB / GB，保留 1 位小数（B 取整）。 */
+export function bytesOf(bytes: number): string {
+	if (!Number.isFinite(bytes) || bytes < 0) return "—";
+	if (bytes < 1024) return `${Math.round(bytes)} B`;
+	const units = ["KB", "MB", "GB", "TB"];
+	let value = bytes / 1024;
+	let index = 0;
+	while (value >= 1024 && index < units.length - 1) {
+		value /= 1024;
+		index += 1;
+	}
+	return `${value.toFixed(1)} ${units[index]}`;
+}
+
 /** 紧凑日期：`10-31 20:41:13`。 */
 export function timeOf(iso: string): string {
 	const date = new Date(iso);

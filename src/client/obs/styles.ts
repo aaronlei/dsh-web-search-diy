@@ -153,6 +153,7 @@ export const OBS_CSS = [
 	".dwsd-obs-data>summary{cursor:pointer;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1.5;padding:4px 0}",
 	".dwsd-obs-data>summary:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}",
 	".dwsd-obs-clearRow{display:flex;align-items:center;gap:8px;margin:8px 0 4px}",
+	".dwsd-obs-storage{display:flex;flex-wrap:wrap;gap:6px 16px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.5;margin:8px 0 4px;font-variant-numeric:tabular-nums}",
 	/* 趋势图 */
 	".dwsd-obs-chart{position:relative;border:.5px solid var(--dsw-alias-border-l2);border-radius:8px;padding:8px}",
 	".dwsd-obs-chart svg{display:block;width:100%;height:160px}",
@@ -162,6 +163,7 @@ export const OBS_CSS = [
 	".dwsd-obs-chartSuccess{fill:none;stroke:var(--dsw-alias-brand-primary);stroke-width:2}",
 	".dwsd-obs-chartP95{fill:none;stroke:var(--dsw-alias-label-secondary);stroke-width:2;stroke-dasharray:4 3}",
 	".dwsd-obs-chartDot{fill:var(--dsw-alias-brand-primary)}",
+	".dwsd-obs-chartErrors{fill:var(--dsw-alias-label-error);opacity:.25}",
 	".dwsd-obs-chartHit{fill:transparent}",
 	".dwsd-obs-chartHit:hover{fill:var(--dsw-alias-bg-layer-4);opacity:.5}",
 	".dwsd-obs-chartTicks{display:flex;justify-content:space-between;color:var(--dsw-alias-label-tertiary);font-size:11px;padding:0 24px}",
@@ -172,6 +174,7 @@ export const OBS_CSS = [
 	".dwsd-obs-legendItem{display:inline-flex;align-items:center;gap:4px}",
 	".dwsd-obs-legendLine{width:16px;height:2px;display:inline-block;background:var(--dsw-alias-brand-primary)}",
 	".dwsd-obs-legendP95{height:0;background:0 0;border-top:2px dashed var(--dsw-alias-label-secondary)}",
+	".dwsd-obs-legendBar{width:8px;height:8px;display:inline-block;border-radius:2px;background:var(--dsw-alias-label-error);opacity:.5}",
 	/* 窄容器 */
 	"@media (max-width:768px){.dwsd-obs-colSummary{display:none}.dwsd-obs-table td,.dwsd-obs-table th{padding-left:8px;padding-right:8px}.dwsd-obs-queryCell{max-width:140px}.dwsd-obs-chartTip{position:static;transform:none;margin-top:8px;justify-content:center}}",
 	/* 窄容器：表格自身滚动，首列与表头保持可读 */

@@ -10,8 +10,8 @@ import * as react from "react";
 import type { BucketSummary } from "./types.ts";
 import { durationOf, percentOf, timeOf } from "./format.ts";
 
-/** 画布尺寸；用 viewBox 自适应容器宽度。 */
-const WIDTH = 640;
+/** 初始画布宽度；挂载后按容器实测宽度重算，避免固定画布在宽屏下只占左侧一段。 */
+const INITIAL_WIDTH = 640;
 const HEIGHT = 160;
 const PAD_X = 30;
 const PAD_Y = 16;
@@ -55,31 +55,47 @@ function areaPath(values: readonly (number | null)[], x: (index: number) => numb
 	return path.trim();
 }
 
-/** 时间轴的短标签：`MM-DD HH:mm` 的时分部分。 */
+/** 时间轴的短标签：保留日期与时分，跨天范围也能区分首尾。 */
 function tickLabel(iso: string): string {
-	const text = timeOf(iso);
-	return text.slice(6);
+	return timeOf(iso).slice(0, 11);
 }
 
 /** The trend chart. */
 export function TrendChart({ t, buckets }: { t: (key: string) => string; buckets: readonly BucketSummary[] }) {
 	const [active, setActive] = react.useState<number | null>(null);
+	const chartRef = react.useRef<HTMLDivElement>(null);
+	const [width, setWidth] = react.useState(INITIAL_WIDTH);
 	const hasData = buckets.some((bucket) => bucket.count > 0);
+	/** 观察容器内容盒宽度并同步 viewBox，让折线与边框同宽。 */
+	react.useEffect(() => {
+		const element = chartRef.current;
+		if (element === null || typeof ResizeObserver === "undefined") return;
+		const observer = new ResizeObserver((entries) => {
+			const entry = entries[0];
+			if (entry !== void 0 && entry.contentRect.width > 0) setWidth(entry.contentRect.width);
+		});
+		observer.observe(element);
+		return () => observer.disconnect();
+	}, [hasData]);
+	const canvasWidth = Math.max(320, width);
 	if (!hasData) {
 		return (
-			<div className="dwsd-obs-chart dwsd-obs-chartEmpty">
-				<svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" aria-label={t("obsNoData")} >
-					<line x1={PAD_X} y1={HEIGHT - PAD_Y} x2={WIDTH - PAD_X} y2={HEIGHT - PAD_Y} className="dwsd-obs-chartAxis" />
+			<div className="dwsd-obs-chart dwsd-obs-chartEmpty" ref={chartRef}>
+				<svg viewBox={`0 0 ${canvasWidth} ${HEIGHT}`} role="img" aria-label={t("obsNoData")} >
+					<line x1={PAD_X} y1={HEIGHT - PAD_Y} x2={canvasWidth - PAD_X} y2={HEIGHT - PAD_Y} className="dwsd-obs-chartAxis" />
 				</svg>
 				<p className="dwsd-obs-hint">{t("obsNoData")}</p>
 			</div>
 		);
 	}
-	const step = buckets.length > 1 ? (WIDTH - PAD_X * 2) / (buckets.length - 1) : 0;
+	const step = buckets.length > 1 ? (canvasWidth - PAD_X * 2) / (buckets.length - 1) : 0;
 	const xAt = (index: number): number => PAD_X + index * step;
 	const maxP95 = Math.max(1000, ...buckets.map((bucket) => bucket.p95 ?? 0));
 	const yOfRatio = (ratio: number): number => HEIGHT - PAD_Y - ratio * (HEIGHT - PAD_Y * 2);
 	const yOfP95 = (ms: number): number => HEIGHT - PAD_Y - (ms / maxP95) * (HEIGHT - PAD_Y * 2);
+	const maxErrors = Math.max(1, ...buckets.map((bucket) => bucket.errorCount));
+	const barWidth = Math.max(1, step * 0.35);
+	const errorHeight = (count: number): number => (count / maxErrors) * (HEIGHT - PAD_Y * 2) * 0.3;
 	const successValues: (number | null)[] = buckets.map((bucket) => bucket.count > 0 ? bucket.successRate : null);
 	const p95Values: (number | null)[] = buckets.map((bucket) => bucket.count > 0 ? bucket.p95 : null);
 	const rates = successValues.filter((value): value is number => value !== null);
@@ -97,13 +113,26 @@ export function TrendChart({ t, buckets }: { t: (key: string) => string; buckets
 				<span className="dwsd-obs-legend">
 					<span className="dwsd-obs-legendItem"><span className="dwsd-obs-legendLine dwsd-obs-legendSuccess" aria-hidden="true" />{t("obsTrendSuccess")}</span>
 					<span className="dwsd-obs-legendItem"><span className="dwsd-obs-legendLine dwsd-obs-legendP95" aria-hidden="true" />{t("obsTrendP95")}</span>
+					<span className="dwsd-obs-legendItem"><span className="dwsd-obs-legendBar" aria-hidden="true" />{t("obsTrendErrors")}</span>
 				</span>
 			</div>
-			<div className="dwsd-obs-chart">
-				<svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" aria-label={ariaLabel} >
-					<line x1={PAD_X} y1={PAD_Y} x2={WIDTH - PAD_X} y2={PAD_Y} className="dwsd-obs-chartGrid" />
-					<line x1={PAD_X} y1={(HEIGHT - PAD_Y + PAD_Y) / 2} x2={WIDTH - PAD_X} y2={(HEIGHT - PAD_Y + PAD_Y) / 2} className="dwsd-obs-chartGrid" />
-					<line x1={PAD_X} y1={HEIGHT - PAD_Y} x2={WIDTH - PAD_X} y2={HEIGHT - PAD_Y} className="dwsd-obs-chartAxis" />
+			<div className="dwsd-obs-chart" ref={chartRef}>
+				<svg viewBox={`0 0 ${canvasWidth} ${HEIGHT}`} role="img" aria-label={ariaLabel} >
+					<line x1={PAD_X} y1={PAD_Y} x2={canvasWidth - PAD_X} y2={PAD_Y} className="dwsd-obs-chartGrid" />
+					<line x1={PAD_X} y1={(HEIGHT - PAD_Y + PAD_Y) / 2} x2={canvasWidth - PAD_X} y2={(HEIGHT - PAD_Y + PAD_Y) / 2} className="dwsd-obs-chartGrid" />
+					<line x1={PAD_X} y1={HEIGHT - PAD_Y} x2={canvasWidth - PAD_X} y2={HEIGHT - PAD_Y} className="dwsd-obs-chartAxis" />
+					{buckets.map((bucket, index) => bucket.errorCount > 0
+						? (
+							<rect
+								key={`errors-${bucket.at}`}
+								x={xAt(index) - barWidth / 2}
+								y={HEIGHT - PAD_Y - errorHeight(bucket.errorCount)}
+								width={barWidth}
+								height={errorHeight(bucket.errorCount)}
+								className="dwsd-obs-chartErrors"
+							/>
+						)
+						: null)}
 					<path d={areaPath(successValues, xAt, yOfRatio)} className="dwsd-obs-chartArea" />
 					<path d={linePath(successValues, xAt, yOfRatio)} className="dwsd-obs-chartSuccess" />
 					<path d={linePath(p95Values, xAt, yOfP95)} className="dwsd-obs-chartP95" />
@@ -132,6 +161,7 @@ export function TrendChart({ t, buckets }: { t: (key: string) => string; buckets
 						<span>{timeOf(activeBucket.at)}</span>
 						<span>{t("obsMetricSuccess")}: {percentOf(activeBucket.successRate)}</span>
 						<span>{t("obsTrendP95")}: {activeBucket.p95 === null ? "—" : durationOf(activeBucket.p95)}</span>
+						<span>{t("obsTrendErrors")}: {activeBucket.errorCount}</span>
 						<span>{t("obsMetricCount")}: {activeBucket.count}</span>
 					</div>
 				) : null}

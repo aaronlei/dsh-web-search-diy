@@ -6,7 +6,7 @@
  *
  * @module dsh-web-search-diy/observability/aggregate
  */
-import type { BucketSummary, ObservabilitySummary, RangeQuery, SummaryTotals, TargetSummary, TopError } from "./types.ts";
+import type { BucketSummary, HostSummary, ObservabilitySummary, RangeQuery, SummaryTotals, TargetSummary, TopError } from "./types.ts";
 
 /** `observations` 表的一行（应用层使用的子集）。 */
 export interface ObservationRow {
@@ -30,6 +30,26 @@ export interface ObservationRow {
 	readonly answer_chars: number;
 	readonly truncated: number;
 	readonly answer?: string | null;
+}
+
+/**
+ * 汇总真正读取的列：与 store 的 `SUMMARY_COLUMNS` 对应。汇总不需要答案、搜索词
+ * 与会话，窄列读取避免数万条记录时把每条正文一起载入内存。
+ */
+export interface SummaryRow {
+	readonly id: string;
+	readonly at: string;
+	readonly target: string;
+	readonly ok: number;
+	readonly error_code: string | null;
+	readonly error_message: string | null;
+	readonly duration_ms: number;
+	readonly source_count: number;
+	readonly with_title: number;
+	readonly with_snippet: number;
+	readonly with_summary: number;
+	readonly answer_chars: number;
+	readonly truncated: number;
 }
 
 /** 相对范围简写到毫秒（概览/记录使用）。 */
@@ -128,19 +148,33 @@ export function percentile(sorted: readonly number[], p: number): number {
 }
 
 /** 一组记录的汇总指标。 */
-function totalsOf(rows: readonly ObservationRow[]): SummaryTotals {
+function totalsOf(rows: readonly SummaryRow[]): SummaryTotals {
 	const count = rows.length;
 	if (count === 0) {
-		return { count: 0, successRate: 0, p50: 0, p95: 0, avgSources: 0, summaryCoverage: null, errorCount: 0 };
+		return {
+			count: 0, successRate: 0, p50: 0, p95: 0, avgSources: 0, summaryCoverage: null, errorCount: 0,
+			emptySourceRate: 0, emptyAnswerRate: 0, truncatedRate: 0, timeoutCount: 0, timeoutRate: 0
+		};
 	}
 	let ok = 0;
 	let sources = 0;
 	let withSummary = 0;
 	let errors = 0;
+	let emptySource = 0;
+	let emptyAnswer = 0;
+	let truncated = 0;
+	let timeouts = 0;
 	const durations: number[] = [];
 	for (const row of rows) {
-		if (row.ok === 1) ok += 1;
-		else errors += 1;
+		if (row.ok === 1) {
+			ok += 1;
+			if (row.source_count === 0) emptySource += 1;
+			if (row.answer_chars === 0) emptyAnswer += 1;
+		} else {
+			errors += 1;
+			if (row.error_code === "WEB_PROVIDER_TIMEOUT") timeouts += 1;
+		}
+		if (row.truncated === 1) truncated += 1;
 		sources += row.source_count;
 		withSummary += row.with_summary;
 		durations.push(row.duration_ms);
@@ -153,13 +187,18 @@ function totalsOf(rows: readonly ObservationRow[]): SummaryTotals {
 		p95: percentile(durations, 0.95),
 		avgSources: Math.round(sources / count * 10) / 10,
 		summaryCoverage: sources === 0 ? null : withSummary / sources,
-		errorCount: errors
+		errorCount: errors,
+		emptySourceRate: ok === 0 ? 0 : emptySource / ok,
+		emptyAnswerRate: ok === 0 ? 0 : emptyAnswer / ok,
+		truncatedRate: truncated / count,
+		timeoutCount: timeouts,
+		timeoutRate: timeouts / count
 	};
 }
 
 /** 按 target 汇总，次数降序、target 字母序打破平局。 */
-function byTargetOf(rows: readonly ObservationRow[]): TargetSummary[] {
-	const groups = new Map<string, ObservationRow[]>();
+function byTargetOf(rows: readonly SummaryRow[]): TargetSummary[] {
+	const groups = new Map<string, SummaryRow[]>();
 	for (const row of rows) {
 		const group = groups.get(row.target);
 		if (group === void 0) groups.set(row.target, [row]);
@@ -188,17 +227,22 @@ function bucketStep(spanMs: number): number {
  * @param untilMs - 范围终点。
  * @returns 按时间升序的桶。
  */
-export function buildBuckets(rows: readonly ObservationRow[], sinceMs: number, untilMs: number): BucketSummary[] {
+export function buildBuckets(rows: readonly SummaryRow[], sinceMs: number, untilMs: number): BucketSummary[] {
 	const span = Math.max(1, untilMs - sinceMs);
 	const step = bucketStep(span);
-	const start = Math.floor(sinceMs / step) * step;
-	const groups = new Map<number, { ok: number; durations: number[] }>();
+	/**
+	 * 从范围起点开始分桶，而不是对齐 UTC epoch：`today` / `week` 的起点是本地
+	 * 00:00，按 epoch 取整会把首个「天」桶挪到本地 08:00 等非自然边界。
+	 */
+	const start = sinceMs;
+	const groups = new Map<number, { ok: number; errors: number; durations: number[] }>();
 	for (const row of rows) {
 		const at = Date.parse(row.at);
-		if (!Number.isFinite(at)) continue;
-		const key = Math.floor(at / step) * step;
-		const group = groups.get(key) ?? { ok: 0, durations: [] };
+		if (!Number.isFinite(at) || at < start) continue;
+		const key = start + Math.floor((at - start) / step) * step;
+		const group = groups.get(key) ?? { ok: 0, errors: 0, durations: [] };
 		if (row.ok === 1) group.ok += 1;
+		else group.errors += 1;
 		group.durations.push(row.duration_ms);
 		groups.set(key, group);
 	}
@@ -211,19 +255,20 @@ export function buildBuckets(rows: readonly ObservationRow[], sinceMs: number, u
 	return keys.map((key) => {
 		const group = groups.get(key);
 		const at = new Date(key).toISOString();
-		if (group === void 0) return { at, count: 0, successRate: null, p95: null };
+		if (group === void 0) return { at, count: 0, successRate: null, p95: null, errorCount: 0 };
 		const durations = [...group.durations].sort((a, b) => a - b);
 		return {
 			at,
 			count: group.durations.length,
 			successRate: group.ok / group.durations.length,
-			p95: percentile(durations, 0.95)
+			p95: percentile(durations, 0.95),
+			errorCount: group.errors
 		};
 	});
 }
 
 /** 失败码计数与最近一条消息，次数降序取前 5。 */
-function topErrorsOf(rows: readonly ObservationRow[]): TopError[] {
+function topErrorsOf(rows: readonly SummaryRow[]): TopError[] {
 	const groups = new Map<string, { count: number; lastMessage: string; lastAt: number }>();
 	for (const row of rows) {
 		if (row.ok === 1) continue;
@@ -254,13 +299,14 @@ function topErrorsOf(rows: readonly ObservationRow[]): TopError[] {
  * @param untilMs - 范围终点。
  * @returns summary 响应体。
  */
-export function summarize(rows: readonly ObservationRow[], sinceMs: number, untilMs: number): ObservabilitySummary {
+export function summarize(rows: readonly ObservationRow[], sinceMs: number, untilMs: number, topHosts: readonly HostSummary[] = []): ObservabilitySummary {
 	return {
 		range: { since: new Date(sinceMs).toISOString(), until: new Date(untilMs).toISOString() },
 		totals: totalsOf(rows),
 		byTarget: byTargetOf(rows),
 		byBucket: buildBuckets(rows, sinceMs, untilMs),
-		topErrors: topErrorsOf(rows)
+		topErrors: topErrorsOf(rows),
+		topHosts
 	};
 }
 

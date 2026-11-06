@@ -5,7 +5,7 @@
  */
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { zstdCompressSync } from "node:zlib";
@@ -109,6 +109,25 @@ describe("observation store", () => {
 		}
 	});
 
+	it("computes quality rates and per-bucket errors", () => {
+		const { store, dir } = storeWithClock({ now: Date.parse("2026-10-31T12:00:00.000Z") });
+		try {
+			store.record(outcome({ startedAt: "2026-10-31T11:00:00.000Z", result: { content: "", sources: [], truncated: true } }));
+			store.record(outcome({ startedAt: "2026-10-31T10:00:00.000Z", ok: false, errorCode: "WEB_PROVIDER_TIMEOUT", errorMessage: "timeout", result: void 0 }));
+			const summary = store.summary({ since: "all" });
+			assert.equal(summary.totals.count, 2);
+			assert.equal(summary.totals.emptySourceRate, 1, "the only success has no sources");
+			assert.equal(summary.totals.emptyAnswerRate, 1);
+			assert.equal(summary.totals.truncatedRate, 0.5);
+			assert.equal(summary.totals.timeoutCount, 1);
+			assert.equal(summary.totals.timeoutRate, 0.5);
+			assert.ok(summary.byBucket.some((bucket) => bucket.errorCount === 1));
+		} finally {
+			store.close();
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
 	it("returns an empty summary when there are no records", () => {
 		const { store, dir } = storeWithClock();
 		try {
@@ -173,6 +192,149 @@ describe("observation store", () => {
 			assert.equal(rows.length, 2, "one header plus one record");
 			assert.match(rows[0], /^id,at,kind,/u);
 			assert.match(rows[1], /"带,逗号"/u, "commas are quoted");
+		} finally {
+			store.close();
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("exports more records than one SQL variable batch allows", () => {
+		const dir = tempDir();
+		const path = join(dir, "observations.db");
+		const at = new Date().toISOString();
+		const db = openObservationDatabase(path);
+		try {
+			db.exec("BEGIN");
+			const insertObservation = db.prepare(
+				"INSERT INTO observations (id, at, kind, session_id, target, vendor, protocol, query, ok, error_code, error_message, duration_ms, source_count, with_title, with_snippet, with_summary, summary_chars, answer_chars, truncated, answer) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+			);
+			const insertSource = db.prepare(
+				"INSERT INTO observation_sources (observation_id, url_hash, host, has_title, has_snippet, has_summary, url, title, snippet, summary) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+			);
+			/** 33,000 > SQLite 默认的 32,766 个变量上限：旧实现一次绑定全部 id 会直接抛错。 */
+			for (let index = 0; index < 33_000; index += 1) {
+				const id = `bulk-${index}`;
+				insertObservation.run(id, at, "search", null, "deepseek/search", "deepseek", "search", "q", 1, null, null, 100, 1, 1, 1, 1, 10, 0, 0, null);
+				insertSource.run(id, `hash-${index}`, "bulk.example", 1, 1, 1, `https://bulk.example/${index}`, "t", "s", "m");
+			}
+			db.exec("COMMIT");
+		} finally {
+			db.close();
+		}
+		const store = ObservationStore.open({ path });
+		try {
+			const exported = store.export({ format: "jsonl", since: "all" });
+			const lines = exported.body.trim().split("\n");
+			assert.equal(lines.length, 33_000);
+			assert.equal(JSON.parse(lines[lines.length - 1]).sources.length, 1);
+		} finally {
+			store.close();
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("starts the first trend bucket at the requested range start", () => {
+		const clock = { now: Date.parse("2026-10-31T12:00:00.000Z") };
+		const { store, dir } = storeWithClock(clock);
+		try {
+			const since = new Date(clock.now - 3 * HOUR).toISOString();
+			const until = new Date(clock.now).toISOString();
+			store.record(outcome({ startedAt: new Date(clock.now - HOUR).toISOString() }));
+			const summary = store.summary({ since, until });
+			assert.equal(summary.byBucket[0].at, since, "the first bucket begins at the range start");
+			assert.equal(summary.byBucket.length, 4);
+		} finally {
+			store.close();
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("neutralizes formula-like cells in exported CSV", () => {
+		const { store, dir } = storeWithClock();
+		try {
+			store.record(outcome({
+				result: {
+					content: "=1+1",
+					sources: [{ url: "https://a.example/x", title: '=HYPERLINK("https://evil.example")' }],
+					truncated: false
+				}
+			}));
+			const csv = store.export({ format: "csv" }).body;
+			assert.ok(csv.includes("'=1+1"), "the answer cell is prefixed");
+			assert.ok(csv.includes("'=HYPERLINK"), "the source title cell is prefixed");
+		} finally {
+			store.close();
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("reports storage stats and the source-domain ranking", () => {
+		const { store, dir } = storeWithClock({ now: Date.parse("2026-10-31T12:00:00.000Z") });
+		try {
+			store.record(outcome({
+				startedAt: "2026-10-31T10:00:00.000Z",
+				result: {
+					content: "a",
+					sources: [{ url: "https://a.example/1" }, { url: "https://a.example/2" }, { url: "https://b.example/1" }],
+					truncated: false
+				}
+			}));
+			store.record(outcome({
+				startedAt: "2026-10-31T11:00:00.000Z",
+				result: { content: "b", sources: [{ url: "https://a.example/3" }], truncated: false }
+			}));
+			const summary = store.summary({ since: "all" });
+			assert.deepEqual(summary.topHosts, [
+				{ host: "a.example", count: 3 },
+				{ host: "b.example", count: 1 }
+			]);
+			const storage = store.storage();
+			assert.equal(storage.rows, 2);
+			assert.equal(storage.sources, 4);
+			assert.ok(storage.bytes > 0);
+			assert.equal(storage.oldest, "2026-10-31T10:00:00.000Z");
+			assert.equal(storage.newest, "2026-10-31T11:00:00.000Z");
+		} finally {
+			store.close();
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("filters records by error code", () => {
+		const { store, dir } = storeWithClock();
+		try {
+			store.record(outcome({ ok: false, errorCode: "WEB_PROVIDER_AUTH", errorMessage: "HTTP 401", result: void 0 }));
+			store.record(outcome({ ok: false, errorCode: "WEB_PROVIDER_RATE_LIMIT", errorMessage: "HTTP 429", result: void 0 }));
+			store.record(outcome());
+			const page = store.records({ since: "all", errorCode: "WEB_PROVIDER_RATE_LIMIT" });
+			assert.equal(page.total, 1);
+			assert.equal(page.records[0].errorCode, "WEB_PROVIDER_RATE_LIMIT");
+		} finally {
+			store.close();
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("vacuum-rewrites the database after clearing", () => {
+		const dir = tempDir();
+		const path = join(dir, "observations.db");
+		const pages = () => {
+			const db = openObservationDatabase(path);
+			try {
+				return Number(db.prepare("PRAGMA page_count").get()?.page_count ?? 0);
+			} finally {
+				db.close();
+			}
+		};
+		const store = ObservationStore.open({ path });
+		try {
+			for (let index = 0; index < 200; index += 1) {
+				store.record(outcome({ result: { content: "x".repeat(2_000), sources: [], truncated: false } }));
+			}
+			const before = pages();
+			assert.equal(store.clear(), 200);
+			const after = pages();
+			assert.ok(after < before, `VACUUM shrinks the page count (${before} -> ${after})`);
 		} finally {
 			store.close();
 			rmSync(dir, { recursive: true, force: true });
@@ -342,6 +504,72 @@ describe("observability endpoints", () => {
 				until: "2026-09-01T00:00:00.000Z"
 			});
 			assert.equal(reversed.status, 400);
+		} finally {
+			store.close();
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("runs an async import and exposes its status", async () => {
+		const { store, dir } = storeWithClock();
+		try {
+			let release;
+			const gate = new Promise((resolve) => { release = resolve; });
+			const call = endpoints(store, async (sinceMs, untilMs, onProgress) => {
+				onProgress?.(1, 2);
+				await gate;
+				return { sessions: 2, calls: 1, imported: 1, skipped: 0, failed: 0, filtered: 0, identified: 1, updated: 0 };
+			});
+			const started = await call("POST", "/api/web-search-diy/observability/import", { async: true });
+			assert.equal(started.status, 202);
+			const running = JSON.parse((await call("GET", "/api/web-search-diy/observability/import/status")).payload);
+			assert.equal(running.state, "running");
+			assert.equal(running.done, 1);
+			const conflict = await call("POST", "/api/web-search-diy/observability/import", { async: true });
+			assert.equal(conflict.status, 409);
+			release();
+			for (let attempt = 0; attempt < 50; attempt += 1) {
+				const status = JSON.parse((await call("GET", "/api/web-search-diy/observability/import/status")).payload);
+				if (status.state === "done") {
+					assert.equal(status.result.imported, 1);
+					return;
+				}
+				await new Promise((resolve) => setTimeout(resolve, 5));
+			}
+			assert.fail("async import did not finish");
+		} finally {
+			store.close();
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("serves storage stats", async () => {
+		const { store, dir } = storeWithClock();
+		try {
+			store.record(outcome());
+			const call = endpoints(store);
+			const response = await call("GET", "/api/web-search-diy/observability/storage");
+			assert.equal(response.status, 200);
+			const body = JSON.parse(response.payload);
+			assert.equal(body.rows, 1);
+			assert.equal(body.sources, 1);
+			assert.ok(body.bytes > 0);
+		} finally {
+			store.close();
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("filters records by error code through the endpoint", async () => {
+		const { store, dir } = storeWithClock();
+		try {
+			store.record(outcome({ ok: false, errorCode: "WEB_PROVIDER_AUTH", errorMessage: "HTTP 401", result: void 0 }));
+			store.record(outcome({ ok: false, errorCode: "WEB_PROVIDER_RATE_LIMIT", errorMessage: "HTTP 429", result: void 0 }));
+			const call = endpoints(store);
+			const response = await call("GET", "/api/web-search-diy/observability/records?since=all&errorCode=WEB_PROVIDER_RATE_LIMIT");
+			const page = JSON.parse(response.payload);
+			assert.equal(page.total, 1);
+			assert.equal(page.records[0].errorCode, "WEB_PROVIDER_RATE_LIMIT");
 		} finally {
 			store.close();
 			rmSync(dir, { recursive: true, force: true });
@@ -613,6 +841,39 @@ describe("historical import", () => {
 		}
 	});
 });
+
+	it("skips whole files written before the import start", async () => {
+		const dir = tempDir();
+		const previous = process.env.DSH_HOME;
+		process.env.DSH_HOME = dir;
+		const sessionDir = join(dir, "sessions", "project", "session-skip");
+		mkdirSync(sessionDir, { recursive: true });
+		const callTime = Date.parse("2026-10-30T10:00:00.000Z");
+		const file = join(sessionDir, "session.v4.jsonl.zstd");
+		writeFileSync(file, zstdCompressSync(JSON.stringify({
+			type: "tool/call", seq: 1, time: callTime,
+			data: { name: "web_search", callId: "c1", arguments: JSON.stringify({ queries: ["旧查询"] }) }
+		})));
+		const written = new Date(callTime + 1_000);
+		utimesSync(file, written, written);
+		const store = ObservationStore.open({ path: join(dir, "observations.db") });
+		try {
+			const progress = [];
+			const result = await importHistorical(store, {
+				sinceMs: callTime + 2_000,
+				onProgress: (done, total) => progress.push([done, total])
+			});
+			assert.equal(result.sessions, 1);
+			assert.equal(result.calls, 0);
+			assert.equal(result.filtered, 0, "the file is skipped before it is decompressed");
+			assert.deepEqual(progress, [[1, 1]]);
+		} finally {
+			store.close();
+			if (previous === void 0) delete process.env.DSH_HOME;
+			else process.env.DSH_HOME = previous;
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
 
 	it("backfills the target from the outbound request event on a re-import", async () => {
 		const dir = tempDir();

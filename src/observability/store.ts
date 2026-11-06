@@ -7,12 +7,14 @@
  * @module dsh-web-search-diy/observability/store
  */
 import { randomUUID } from "node:crypto";
-import { rangeFilter, summarize, type ObservationRow } from "./aggregate.ts";
+import { statSync } from "node:fs";
+import { rangeFilter, summarize, type ObservationRow, type RangeFilter } from "./aggregate.ts";
 import { contentTypeOf, exportFileName, serialize } from "./export.ts";
-import { openObservationDatabase } from "./schema.ts";
+import { observationDatabasePath, openObservationDatabase } from "./schema.ts";
 import { factsOfSources } from "./sources.ts";
 import type {
 	ExportQuery,
+	HostSummary,
 	ObservabilitySummary,
 	ObservationRecord,
 	ObservationRecordView,
@@ -21,7 +23,8 @@ import type {
 	RangeQuery,
 	RecordsPage,
 	RecordsQuery,
-	SearchOutcome
+	SearchOutcome,
+	StorageStats
 } from "./types.ts";
 
 /** 搜索词入库上限。 */
@@ -37,6 +40,21 @@ const MAX_RECORD_LIMIT = 500;
 const MAX_EXPORT_ROWS = 50_000;
 /** 聚合缓存窗口。 */
 const SUMMARY_CACHE_MS = 2000;
+
+/**
+ * 单次 `IN` 查询携带的记录 id 数。SQLite 默认变量上限为 32766，取 900 留足余量，
+ * 让导出 50,000 条时按批读取来源明细而不是一次绑定 50,000 个参数。
+ */
+const SOURCE_ID_BATCH = 900;
+
+/**
+ * 汇总只需要的列：不读 `answer` / `query` / `session_id` 等大文本，范围含数万条
+ * 记录时避免把每条答案正文一起载入内存。
+ */
+const SUMMARY_COLUMNS = [
+	"id", "at", "target", "ok", "error_code", "error_message", "duration_ms",
+	"source_count", "with_title", "with_snippet", "with_summary", "answer_chars", "truncated"
+].join(", ");
 
 /** 观测库用到的列；顺序与 {@link ObservationRow} 一致。 */
 const ROW_COLUMNS = [
@@ -181,6 +199,7 @@ function describe(error: unknown): string {
 /** 观测存储门面；构造失败时 `open` 返回 undefined，插件按禁用观测继续。 */
 export class ObservationStore {
 	private readonly db: ReturnType<typeof openObservationDatabase>;
+	private readonly path: string;
 	private readonly warn: ((message: string) => void) | undefined;
 	private readonly now: () => number;
 	private summaryCache: { key: string; at: number; value: ObservabilitySummary } | undefined;
@@ -188,6 +207,7 @@ export class ObservationStore {
 
 	private constructor(db: ReturnType<typeof openObservationDatabase>, options: ObservationStoreOptions) {
 		this.db = db;
+		this.path = options.path ?? observationDatabasePath();
 		this.warn = options.warn;
 		this.now = options.now ?? Date.now;
 	}
@@ -284,7 +304,12 @@ export class ObservationStore {
 		const cached = this.summaryCache;
 		if (cached !== void 0 && cached.key === key && this.now() - cached.at < SUMMARY_CACHE_MS) return cached.value;
 		const filter = rangeFilter(query, this.now());
-		const value = summarize(this.rowsWhere([filter.sql], [...filter.params], "ASC", 0), filter.sinceMs, filter.untilMs);
+		const value = summarize(
+			this.rowsWhere([filter.sql], [...filter.params], "ASC", 0, 0, SUMMARY_COLUMNS),
+			filter.sinceMs,
+			filter.untilMs,
+			this.topHostsOf(filter)
+		);
 		this.summaryCache = { key, at: this.now(), value };
 		return value;
 	}
@@ -301,6 +326,10 @@ export class ObservationStore {
 		const params: unknown[] = [...filter.params];
 		if (query.status === "ok") clauses.push("ok = 1");
 		if (query.status === "fail") clauses.push("ok = 0");
+		if (query.errorCode !== void 0 && query.errorCode.length > 0) {
+			clauses.push("error_code = ?");
+			params.push(query.errorCode);
+		}
 		if (query.query !== void 0 && query.query.length > 0) {
 			clauses.push("instr(lower(query), lower(?)) > 0");
 			params.push(query.query);
@@ -334,10 +363,38 @@ export class ObservationStore {
 		};
 	}
 
-	/** 清空全部记录（来源明细级联删除）。 */
+	/** 观测库的存储状态：文件占用、记录/来源行数与记录时间跨度。 */
+	storage(): StorageStats {
+		const row = this.db.prepare(
+			"SELECT COUNT(*) AS rows, (SELECT COUNT(*) FROM observation_sources) AS sources, MIN(at) AS oldest, MAX(at) AS newest FROM observations"
+		).get() as { rows?: unknown; sources?: unknown; oldest?: unknown; newest?: unknown } | undefined;
+		let bytes = 0;
+		for (const file of [this.path, `${this.path}-wal`, `${this.path}-shm`]) {
+			try {
+				bytes += statSync(file).size;
+			} catch {
+				/** WAL/SHM 伴生文件可能不存在。 */
+			}
+		}
+		return {
+			bytes,
+			rows: Number(row?.rows ?? 0),
+			sources: Number(row?.sources ?? 0),
+			oldest: typeof row?.oldest === "string" ? row.oldest : null,
+			newest: typeof row?.newest === "string" ? row.newest : null
+		};
+	}
+
+	/** 清空全部记录（来源明细级联删除），随后 VACUUM 把文件收缩回实际大小。 */
 	clear(): number {
 		const result = this.db.prepare("DELETE FROM observations").run();
 		this.summaryCache = void 0;
+		/** VACUUM 失败只告警：行已经删除，磁盘回收是附加收益。 */
+		try {
+			this.db.exec("VACUUM");
+		} catch (error) {
+			this.warnOnce(`observation vacuum failed: ${describe(error)}`);
+		}
 		return Number(result.changes);
 	}
 
@@ -357,11 +414,11 @@ export class ObservationStore {
 		this.warn?.(message);
 	}
 
-	/** 按条件读取观测行；`limit` 为 0 表示不限制，`offset` 用于分页。 */
-	private rowsWhere(clauses: readonly string[], params: readonly unknown[], order: "ASC" | "DESC", limit: number, offset = 0): ObservationRow[] {
+	/** 按条件读取观测行；`limit` 为 0 表示不限制，`offset` 用于分页，`columns` 收窄读取列。 */
+	private rowsWhere(clauses: readonly string[], params: readonly unknown[], order: "ASC" | "DESC", limit: number, offset = 0, columns: string = ROW_COLUMNS): ObservationRow[] {
 		const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
 		const tail = limit > 0 ? " LIMIT ? OFFSET ?" : "";
-		const sql = `SELECT ${ROW_COLUMNS} FROM observations ${where} ORDER BY at ${order}, id ${order}${tail}`;
+		const sql = `SELECT ${columns} FROM observations ${where} ORDER BY at ${order}, id ${order}${tail}`;
 		const args = limit > 0 ? [...params, limit, offset] : [...params];
 		return this.db.prepare(sql).all(...args) as ObservationRow[];
 	}
@@ -373,17 +430,27 @@ export class ObservationStore {
 		return Number(row?.total ?? 0);
 	}
 
-	/** 一次查询取回一页记录的全部来源明细，按 observation_id 分组。 */
+	/** 来源域名 Top N；沿用 summary 的范围、target 与 kind 条件。 */
+	private topHostsOf(filter: RangeFilter, limit = 10): HostSummary[] {
+		const rows = this.db.prepare(
+			`SELECT s.host AS host, COUNT(*) AS count FROM observation_sources s JOIN observations o ON o.id = s.observation_id WHERE ${filter.sql} AND s.host <> '' GROUP BY s.host ORDER BY count DESC, host ASC LIMIT ?`
+		).all(...filter.params, limit) as { host?: unknown; count?: unknown }[];
+		return rows.map((row) => ({ host: String(row.host ?? ""), count: Number(row.count ?? 0) }));
+	}
+
+	/** 一次查询取回一页记录的全部来源明细，按 observation_id 分组；超过一批时按 id 分批。 */
 	private sourcesOfIds(ids: readonly string[]): Map<string, ObservationSource[]> {
 		const grouped = new Map<string, ObservationSource[]>();
-		if (ids.length === 0) return grouped;
-		const placeholders = ids.map(() => "?").join(", ");
-		const rows = this.db.prepare(`SELECT observation_id, url_hash, host, has_title, has_snippet, has_summary, url, title, snippet, summary FROM observation_sources WHERE observation_id IN (${placeholders}) ORDER BY rowid`).all(...ids) as Record<string, unknown>[];
-		for (const row of rows) {
-			const source = sourceFromRow(row);
-			const list = grouped.get(source.observationId);
-			if (list === void 0) grouped.set(source.observationId, [source]);
-			else list.push(source);
+		for (let start = 0; start < ids.length; start += SOURCE_ID_BATCH) {
+			const chunk = ids.slice(start, start + SOURCE_ID_BATCH);
+			const placeholders = chunk.map(() => "?").join(", ");
+			const rows = this.db.prepare(`SELECT observation_id, url_hash, host, has_title, has_snippet, has_summary, url, title, snippet, summary FROM observation_sources WHERE observation_id IN (${placeholders}) ORDER BY rowid`).all(...chunk) as Record<string, unknown>[];
+			for (const row of rows) {
+				const source = sourceFromRow(row);
+				const list = grouped.get(source.observationId);
+				if (list === void 0) grouped.set(source.observationId, [source]);
+				else list.push(source);
+			}
 		}
 		return grouped;
 	}

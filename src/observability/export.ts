@@ -16,9 +16,14 @@ const CSV_COLUMNS = [
 	"answer", "source_titles"
 ] as const;
 
+/** 表格软件把以这些字符开头的单元格当作公式；外部网页标题与答案文本都可能命中。 */
+const FORMULA_LEAD = /^[=+\-@\t\r]/u;
+
 /** 一个单元格的 CSV 转义：含分隔符、引号或换行时加引号并双写内部引号。 */
 function csvCell(value: unknown): string {
-	const text = value === null || value === void 0 ? "" : String(value);
+	const raw = value === null || value === void 0 ? "" : String(value);
+	/** 前置单引号让表格软件按文本显示，避免不可信文本被当作公式执行。 */
+	const text = FORMULA_LEAD.test(raw) ? `'${raw}` : raw;
 	return /[",\r\n]/u.test(text) ? `"${text.replace(/"/gu, '""')}"` : text;
 }
 

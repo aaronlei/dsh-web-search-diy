@@ -25,7 +25,7 @@
 - 📦 **响应解码对 dispatcher 免疫** —— 按字节读取并按魔数解压，不受 dsh 全局 undici dispatcher 影响。
 - 📄 **正文进入来源摘要** —— 纯工具搜索的长正文写入 `source.summary`（上限 2,000 字符），原文与 `snippet` 相同时不重复写；`snippet` 同样截到 2,000 字符。模型优先读取摘要。
 - 🚦 **无凭据不暴露工具** —— 当前 target 解析不出凭据时，`web_search` 不再出现在模型上下文，避免调用后才报错。
-- 📊 **内置观测页** —— 「配置 / 观测」一级 tab；概览给出搜索次数、成功率、P50/P95、平均来源、摘要覆盖、target 排行、成功率与 P95 趋势以及最近记录；记录页按状态、搜索词筛选，展开来源明细，复制整条 JSON。
+- 📊 **内置观测页** —— 「配置 / 观测」一级 tab；概览给出搜索次数、成功率、P50/P95、平均来源、摘要覆盖、无来源率、空答案率、截断率、超时率、target、失败码与来源域名排行、含错误柱的成功率/P95 趋势以及最近记录；记录页按状态、搜索词筛选，展开来源明细，复制整条 JSON。
 - 🗄️ **本地观测库与历史导入** —— `node:sqlite` 落盘（WAL、0600、事务写入、只保留最近 50,000 条）；导入扫描 `$DSH_HOME/sessions` 里旧的 `web_search` 调用，重复导入只补新增；支持 JSONL/CSV 导出与需输入 `DELETE` 的清空。
 - 🧱 **失败分层与超时** —— HTTP 状态、网络失败与本地超时归为稳定错误码；`requestTimeoutMs` 默认 25 秒（测试连接 60 秒），调用方取消与超时分开记录。
 - 📅 **日历时间范围与页码分页** —— 预设范围之外可用月历选择起止日期，查询与导入各自独立；记录页按页码翻页，支持 10/20/50/100 条每页与跳页。
@@ -233,9 +233,9 @@ dsh plugin --profile web add link:./dsh-web-search-diy
 - **采集**：provider 在每次真实搜索与测试连接结束时上报一条 outcome，成功和失败都记；字段包括 target / vendor / protocol、会话 id、搜索词、耗时、错误码与来源计数。采集出口自身再兜一层异常，写入失败只告警一次，搜索返回值不受影响。
 - **存储**：`node:sqlite` 写入 `$DSH_HOME/web-search-diy/observations.db`；启用 WAL、`busy_timeout` 与外键，目录和文件分别收紧到 0700 / 0600。一条记录与它的来源明细在同一事务内提交；启动时按 `PRAGMA user_version` 迁移，并只保留最近 50,000 条（不按时间删除，避免导入的旧记录被时间窗口清掉）。`node:sqlite` 不可用、目录不可写或数据库损坏时，整层观测禁用，搜索照常工作。
 - **失败分层**：`401/403` → `WEB_PROVIDER_AUTH`；`408/504` 与本地超时 → `WEB_PROVIDER_TIMEOUT`；`429` → `WEB_PROVIDER_RATE_LIMIT`；`5xx` → `WEB_PROVIDER_SERVER`；其余 4xx（`400` 除外）→ `WEB_PROVIDER_REQUEST`；`400` 与响应体不可解析 → `WEB_PROVIDER_ERROR`；网络失败 → `WEB_PROVIDER_NETWORK`；调用方取消 → `WEB_ABORTED`。
-- **查询与分页**：`GET /api/web-search-diy/observability/summary|records|export`、`DELETE .../records`、`POST .../import`。P50/P95 在应用层对 `duration_ms` 排序后线性插值，不依赖 SQLite 窗口函数；记录页按 `page` / `limit` 取一页，同时返回筛选后的 `total`，页码越界时夹紧到最后一页。
+- **查询与分页**：`GET /api/web-search-diy/observability/summary|records|export`、`DELETE .../records`、`POST .../import`（`{async:true}` 立即返回 202，进度与结果看 `GET .../import/status`）。P50/P95 在应用层对 `duration_ms` 排序后线性插值，不依赖 SQLite 窗口函数；记录页按 `page` / `limit` 取一页，同时返回筛选后的 `total`，`status`、`errorCode` 与搜索词共同收窄结果，页码越界时夹紧到最后一页。`GET .../storage` 返回库大小、记录/来源行数与记录时间跨度。清空记录后执行 `VACUUM` 回收文件空间。
 - **时间范围**：`since` 接受相对预设或 ISO 时间，`until` 只接受 ISO 时间；自定义结束日按本地自然日的 `23:59:59.999` 计入。预设与「至今」不发送 `until`，默认范围是近 24 小时；查询范围与导入范围各自独立。
-- **历史导入**：扫描会话日志里的 `tool/call`（`web_search`）与对应结果，按 `history:<sessionId>:<seq>` 生成确定性 id，重复导入只补新增。新版本所有协议都会在调用与结果之间写入 `web/deepseek-search-llm-request` 事件并携带 target；旧事件没有 target 时按 catalog 默认端点回退；两者都没有时记为 `historical`（界面显示「历史记录」）。导入可限定 `since` / `until`，也能为已存在的历史记录补全 target。
+- **历史导入**：扫描会话日志里的 `tool/call`（`web_search`）与对应结果，按 `history:<sessionId>:<seq>` 生成确定性 id，重复导入只补新增。新版本所有协议都会在调用与结果之间写入 `web/deepseek-search-llm-request` 事件并携带 target；旧事件没有 target 时按 catalog 默认端点回退；两者都没有时记为 `historical`（界面显示「历史记录」）。导入可限定 `since` / `until`，也能为已存在的历史记录补全 target；文件 mtime 早于导入起点的会话整份跳过、不再解压，异步导入按文件回报进度。
 
 ## 实测结果
 

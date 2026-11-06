@@ -13,6 +13,14 @@ export interface SummaryTotals {
 	readonly avgSources: number;
 	readonly summaryCoverage: number | null;
 	readonly errorCount: number;
+	/** 成功记录里没有任何来源的比例。 */
+	readonly emptySourceRate: number;
+	/** 成功记录里答案正文为空的比例。 */
+	readonly emptyAnswerRate: number;
+	/** 被截断的记录比例。 */
+	readonly truncatedRate: number;
+	readonly timeoutCount: number;
+	readonly timeoutRate: number;
 }
 
 /** 一个 target 的汇总。 */
@@ -26,6 +34,7 @@ export interface BucketSummary {
 	readonly count: number;
 	readonly successRate: number | null;
 	readonly p95: number | null;
+	readonly errorCount: number;
 }
 
 /** 失败码与最近一条消息。 */
@@ -35,6 +44,12 @@ export interface TopError {
 	readonly lastMessage: string;
 }
 
+/** 一个来源域名的出现次数。 */
+export interface HostSummary {
+	readonly host: string;
+	readonly count: number;
+}
+
 /** `GET /observability/summary` 的响应。 */
 export interface SummaryResponse {
 	readonly range: { readonly since: string; readonly until: string };
@@ -42,6 +57,16 @@ export interface SummaryResponse {
 	readonly byTarget: readonly TargetSummary[];
 	readonly byBucket: readonly BucketSummary[];
 	readonly topErrors: readonly TopError[];
+	readonly topHosts: readonly HostSummary[];
+}
+
+/** `GET /observability/storage` 的响应。 */
+export interface StorageStats {
+	readonly bytes: number;
+	readonly rows: number;
+	readonly sources: number;
+	readonly oldest: string | null;
+	readonly newest: string | null;
 }
 
 /** 一条来源明细；只含 hash 与 host。 */
@@ -112,4 +137,6 @@ export interface Filters {
 	readonly range: TimeRange;
 	readonly target: string;
 	readonly includeTests: boolean;
+	/** 失败码精确筛选；空串表示全部。 */
+	readonly errorCode: string;
 }

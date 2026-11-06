@@ -221,10 +221,13 @@ export interface RecordsProps {
 	readonly t: (key: string) => string;
 	readonly filters: Filters;
 	readonly targetOptions: readonly string[];
+	/** 汇总里出现过的失败码；为空时不显示错误码下拉。 */
+	readonly errorOptions: readonly string[];
 	/** Bumped by the parent's refresh button to reload the first page. */
 	readonly refreshToken: number;
 	/** Clears the parent's target filter (the in-view filters are cleared here). */
 	readonly onResetTarget: () => void;
+	readonly onErrorCodeChange: (code: string) => void;
 }
 
 /** The records view. */
@@ -310,9 +313,10 @@ export function Records(props: RecordsProps) {
 		setTerm("");
 		setAppliedTerm("");
 		props.onResetTarget();
+		props.onErrorCodeChange("");
 	};
 
-	const filtered = status !== "all" || appliedTerm.length > 0 || filters.target.length > 0;
+	const filtered = status !== "all" || appliedTerm.length > 0 || filters.target.length > 0 || filters.errorCode.length > 0;
 	return (
 		<div className="dwsd-obs-view">
 			{error !== null ? <ErrorBanner t={t} message={error} onRetry={() => { setRetryToken((current) => current + 1); }} /> : null}
@@ -325,6 +329,19 @@ export function Records(props: RecordsProps) {
 						<option value="fail">{t("obsStatusFail")}</option>
 					</select>
 				</label>
+				{props.errorOptions.length > 0 ? (
+					<label className="dwsd-obs-filter">
+						<span className="dwsd-obs-filterLabel">{t("obsErrorFilter")}</span>
+						<select
+							className="dwsd-obs-input"
+							value={filters.errorCode}
+							onChange={(event) => { props.onErrorCodeChange(event.target.value); }}
+						>
+							<option value="">{t("obsAllErrorCodes")}</option>
+							{props.errorOptions.map((code) => <option key={code} value={code}>{code}</option>)}
+						</select>
+					</label>
+				) : null}
 				<label className="dwsd-obs-filter dwsd-obs-filterGrow">
 					<span className="dwsd-obs-filterLabel">{t("obsFilterQuery")}</span>
 					<input

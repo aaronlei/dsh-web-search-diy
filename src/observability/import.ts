@@ -10,7 +10,7 @@
  *
  * @module dsh-web-search-diy/observability/import
  */
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { ALL_TARGETS, capabilityOf, joinEndpoint } from "../catalog.ts";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -114,6 +114,8 @@ function sessionsRoot(): string {
 interface SessionFile {
 	readonly sessionId: string;
 	readonly path: string;
+	/** 文件最后写入时间（毫秒）：早于导入起点的文件可以整份跳过。 */
+	readonly mtimeMs: number;
 }
 
 /** 列出所有会话日志文件；目录结构为 `<sessions>/<project>/<session-*>/session*.jsonl.zstd`。 */
@@ -139,7 +141,15 @@ function listSessionFiles(root: string): SessionFile[] {
 			const sessionId = session.startsWith("session-") ? session.slice("session-".length) : session;
 			for (const entry of entries) {
 				if (!entry.endsWith(".jsonl.zstd") || !entry.includes("session")) continue;
-				files.push({ sessionId, path: join(sessionDir, entry) });
+				const path = join(sessionDir, entry);
+				let mtimeMs: number;
+				try {
+					mtimeMs = statSync(path).mtimeMs;
+				} catch {
+					/** 列目录与读取之间文件可能被删除；跳过即可。 */
+					continue;
+				}
+				files.push({ sessionId, path, mtimeMs });
 			}
 		}
 	}
@@ -233,6 +243,8 @@ export interface ImportOptions {
 	readonly sinceMs?: number;
 	/** 只导入该时间点之前的调用；省略表示不设上界。 */
 	readonly untilMs?: number;
+	/** 每处理完一个会话文件（含跳过）报告一次进度。 */
+	readonly onProgress?: (done: number, total: number) => void;
 }
 
 /**
@@ -246,49 +258,59 @@ export async function importHistorical(store: ObservationStore, options: ImportO
 	const files = listSessionFiles(options.root ?? sessionsRoot());
 	const endpointIndex = targetIndexOfCatalog();
 	const result = { sessions: files.length, calls: 0, imported: 0, skipped: 0, failed: 0, filtered: 0, identified: 0, updated: 0 };
-	for (const file of files) {
-		let events: Record<string, unknown>[];
+	for (let index = 0; index < files.length; index += 1) {
+		const file = files[index];
 		try {
-			events = parseEvents(zstdDecompressSync(readFileSync(file.path)).toString("utf8"));
-		} catch {
-			result.failed += 1;
-			continue;
-		}
-		const calls = events.filter((event) => event.type === "tool/call" && (event.data as { name?: unknown } | undefined)?.name === "web_search");
-		if (calls.length === 0) continue;
-		const results = new Map<string, Record<string, unknown>>();
-		for (const event of events) {
-			if (event.type !== "tool/result") continue;
-			const message = (event.data as { message?: { toolCallId?: unknown } } | undefined)?.message;
-			const callId = typeof message?.toolCallId === "string" ? message.toolCallId : void 0;
-			if (callId !== void 0) results.set(callId, event);
-		}
-		for (const call of calls) {
-			const callTime = typeof call.time === "number" ? call.time : 0;
-			if (options.sinceMs !== void 0 && callTime < options.sinceMs) {
-				result.filtered += 1;
+			/**
+			 * 会话日志只追加写：文件 mtime 早于导入起点时，整份文件不可能含范围内
+			 * 调用，跳过解压（导入「最近 7 天」时大部分旧会话都走这条捷径）。
+			 */
+			if (options.sinceMs !== void 0 && file.mtimeMs < options.sinceMs) continue;
+			let events: Record<string, unknown>[];
+			try {
+				events = parseEvents(zstdDecompressSync(readFileSync(file.path)).toString("utf8"));
+			} catch {
+				result.failed += 1;
 				continue;
 			}
-			if (options.untilMs !== void 0 && callTime > options.untilMs) {
-				result.filtered += 1;
-				continue;
+			const calls = events.filter((event) => event.type === "tool/call" && (event.data as { name?: unknown } | undefined)?.name === "web_search");
+			if (calls.length === 0) continue;
+			const results = new Map<string, Record<string, unknown>>();
+			for (const event of events) {
+				if (event.type !== "tool/result") continue;
+				const message = (event.data as { message?: { toolCallId?: unknown } } | undefined)?.message;
+				const callId = typeof message?.toolCallId === "string" ? message.toolCallId : void 0;
+				if (callId !== void 0) results.set(callId, event);
 			}
-			result.calls += 1;
-			const data = call.data as Record<string, unknown> | undefined;
-			const callId = typeof data?.callId === "string" ? data.callId : void 0;
-			const targetResult = callId !== void 0 ? results.get(callId) : void 0;
-			const request = requestOf(events, call, targetResult);
-			const target = resolvedTargetOf(request, endpointIndex);
-			if (target !== void 0) result.identified += 1;
-			const outcome = outcomeOf(file.sessionId, call, targetResult, target);
-			const id = `history:${file.sessionId}:${String(call.seq ?? result.calls)}`;
-			const status = store.record(outcome, id);
-			if (status === "inserted") result.imported += 1;
-			else if (status === "updated") result.updated += 1;
-			else result.skipped += 1;
+			for (const call of calls) {
+				const callTime = typeof call.time === "number" ? call.time : 0;
+				if (options.sinceMs !== void 0 && callTime < options.sinceMs) {
+					result.filtered += 1;
+					continue;
+				}
+				if (options.untilMs !== void 0 && callTime > options.untilMs) {
+					result.filtered += 1;
+					continue;
+				}
+				result.calls += 1;
+				const data = call.data as Record<string, unknown> | undefined;
+				const callId = typeof data?.callId === "string" ? data.callId : void 0;
+				const targetResult = callId !== void 0 ? results.get(callId) : void 0;
+				const request = requestOf(events, call, targetResult);
+				const target = resolvedTargetOf(request, endpointIndex);
+				if (target !== void 0) result.identified += 1;
+				const outcome = outcomeOf(file.sessionId, call, targetResult, target);
+				const id = `history:${file.sessionId}:${String(call.seq ?? result.calls)}`;
+				const status = store.record(outcome, id);
+				if (status === "inserted") result.imported += 1;
+				else if (status === "updated") result.updated += 1;
+				else result.skipped += 1;
+			}
+			/** 每处理完一个会话让出事件循环，避免导入期间界面完全无响应。 */
+			await new Promise((resolve) => setImmediate(resolve));
+		} finally {
+			options.onProgress?.(index + 1, files.length);
 		}
-		/** 每处理完一个会话让出事件循环，避免导入期间界面完全无响应。 */
-		await new Promise((resolve) => setImmediate(resolve));
 	}
 	return result;
 }
