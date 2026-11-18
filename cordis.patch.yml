@@ -20,13 +20,11 @@
     searchProvider: diy-search
     fetchProvider: http
 
-# The shipped DeepSeek search providers are replaced by this plugin; keep the
-# base rows disabled so they never register competing providers. 0.2.2-rc.3
-# added `web-deepseek-api` (deepseek-search-api + deepseek-fetch-api) next to
-# the legacy `web-search-deepseek`; disabling it drops the official Fetch API
-# too, but `fetchProvider: http` above keeps local fetching available. Rows
-# that do not exist on an older DSH release are warned about and skipped.
+# The shipped legacy Messages search is replaced by this plugin; keep that
+# base row disabled so it never registers a competing `deepseek-official`
+# provider. 0.2.2-rc.3's `web-deepseek-api` (deepseek-search-api +
+# deepseek-fetch-api) stays enabled: the `web` row above pins diy-search and
+# http by default, while both official APIs remain selectable in the Web
+# search and fetch settings page.
 - id: web-search-deepseek
-  disabled: true
-- id: web-deepseek-api
   disabled: true

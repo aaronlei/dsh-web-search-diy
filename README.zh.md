@@ -59,7 +59,7 @@ bundle patch 会自动完成接线，无需手改 `cordis.patch.yml`：
 
 - 插入 `web-search-diy` loader 条目；
 - 覆盖共享 `web` 行：`searchProvider: diy-search`，并补回 `fetchProvider: http`（patch 会整段替换该行 config）；
-- 禁用官方 `web-search-deepseek` 与 `web-deepseek-api` 提供方（后者是 0.2.2-rc.3 新增的官方搜索 / 抓取行）。
+- 禁用官方旧版 Messages 搜索 `web-search-deepseek`；0.2.2-rc.3 的 `web-deepseek-api`（官方 Search / Fetch API）保留为可选项，默认仍由 `web` 行选中 `diy-search` / `http`。
 
 本地开发用链接安装：
 
