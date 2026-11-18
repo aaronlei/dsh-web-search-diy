@@ -5,6 +5,36 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **DSH 0.2.2-rc.3 provider metadata.** `DiySearchProvider` now declares the
+  optional `title` and eight-language `description` fields rc.3 shows in its
+  web-search provider menu, so the picker no longer falls back to the raw
+  `diy-search` id.
+
+### Changed
+
+- **A sharper card icon.** `icon.svg` is now a globe seen through a magnifier,
+  drawn at 36×36 in flat two-tone blue with a short gradient and no tile, so it
+  reads at row and card size in both light and dark themes.
+- **The bundle patch also disables `web-deepseek-api`.** 0.2.2-rc.3 adds that
+  official Search/Fetch row next to `web-search-deepseek`; leaving it enabled
+  would register a competing provider in rc.3's new provider menu.
+- **Duplicate paths collapsed.** Saving and test-connection now share one
+  `configDraftOf` validator; the four protocols share `mapFailure` and the
+  three model protocols share `postSearch`; `config.ts` reuses `wire.asRecord`;
+  both endpoint modules share `readJsonObjectBody`; the client halves share
+  `client/http.ts`; record pagination and export share `viewsWhere`.
+
+### Fixed
+
+- **Client verification matches the 2.1.1 summary contract.** Its fixture gains
+  `topHosts`, the per-bucket `errorCount` and the quality totals; the metric
+  assertion counts nine cards; and the import-status stub no longer overwrites
+  the captured request body, so `pnpm run test:client` passes again.
+
 ## [2.1.1] - 2026-11-07
 
 ### Added
