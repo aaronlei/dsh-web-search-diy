@@ -56,6 +56,23 @@ function needsModel(protocol: string): boolean {
  */
 export class DiySearchProvider implements WebSearchProvider {
 	readonly id = PROVIDER_ID;
+	/** Picker title; 0.2.2-rc.3 shows it instead of the raw provider id. */
+	readonly title = "DIY Web Search";
+	/**
+	 * Picker description introduced in 0.2.2-rc.3: what the provider is suited
+	 * for and how it is billed. The field is optional and absent from older
+	 * `WebSearchProvider` types, so a plain literal keeps both builds assignable.
+	 */
+	readonly description = {
+		en: "Searches through the vendor and protocol you configure; billed by that provider.",
+		zh: "通过你选定的厂商与协议执行搜索，费用由对应厂商结算。",
+		ja: "設定したベンダーとプロトコルで検索し、料金はその提供元に請求されます。",
+		es: "Busca con el proveedor y protocolo que configures; la facturación corre a cargo de ese proveedor.",
+		fr: "Recherche via le fournisseur et le protocole que vous configurez ; la facturation revient à ce fournisseur.",
+		de: "Durchsucht das Web über den gewählten Anbieter und das Protokoll; die Abrechnung erfolgt durch diesen Anbieter.",
+		ru: "Поиск идёт через выбранного поставщика и протокол; оплату выставляет этот поставщик.",
+		pt: "Pesquisa pelo fornecedor e protocolo que você configurar; a cobrança é feita por esse fornecedor."
+	};
 	private readonly resolveOptions: () => SearchOptions;
 	/** 就绪检查失败时的诊断出口；无头组合不传时保持静默。 */
 	private readonly warn: ((message: string) => void) | undefined;

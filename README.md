@@ -59,7 +59,7 @@ The bundle patch performs the wiring, so no manual `cordis.patch.yml` edits are 
 
 - inserts the `web-search-diy` loader entry;
 - overrides the shared `web` row's `searchProvider` to `diy-search` and restates `fetchProvider: http` (a patch replaces the whole row config);
-- disables the shipped `web-search-deepseek` provider.
+- disables the shipped `web-search-deepseek` and `web-deepseek-api` providers (the latter is the official Search/Fetch row added in 0.2.2-rc.3).
 
 For local development, install the checkout as a link:
 
