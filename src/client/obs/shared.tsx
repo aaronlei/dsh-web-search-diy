@@ -27,7 +27,7 @@ export function ErrorBanner({ t, message, onRetry }: { t: (key: string) => strin
 export function MetricSkeleton() {
 	return (
 		<div className="dwsd-obs-cards" aria-hidden="true">
-			{[0, 1, 2, 3, 4].map((index) => (
+			{Array.from({ length: 9 }, (_unused, index) => (
 				<div className="dwsd-obs-card" key={index}>
 					<span className="dwsd-obs-skeleton dwsd-obs-skeletonLabel" />
 					<span className="dwsd-obs-skeleton dwsd-obs-skeletonValue" />

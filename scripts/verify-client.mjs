@@ -85,6 +85,9 @@ globalThis.fetch = async (url, init) => {
 	const target = String(url);
 	if (observationFixtures !== null && target.includes("/observability/")) {
 		if (target.includes("/observability/summary")) return jsonResponse(observationFixtures.summary);
+		if (target.includes("/observability/import/status")) {
+			return jsonResponse({ state: "done", done: 3, total: 3, result: { sessions: 3, calls: 2, imported: 2, skipped: 0, failed: 0, filtered: 1, identified: 2, updated: 1 } });
+		}
 		if (target.includes("/observability/import")) {
 			observationImported = true;
 			lastImportBody = init?.body === void 0 ? null : JSON.parse(init.body);
@@ -733,17 +736,18 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 observationFixtures = {
 	summary: {
 		range: { since: "2026-10-31T00:00:00.000Z", until: "2026-10-31T12:00:00.000Z" },
-		totals: { count: 12, successRate: 0.92, p50: 1200, p95: 4200, avgSources: 5.8, summaryCoverage: 0.78, errorCount: 1 },
+		totals: { count: 12, successRate: 0.92, p50: 1200, p95: 4200, avgSources: 5.8, summaryCoverage: 0.78, errorCount: 1, emptySourceRate: 0.08, emptyAnswerRate: 0.17, truncatedRate: 0.08, timeoutCount: 1, timeoutRate: 0.08 },
 		byTarget: [
-			{ target: "deepseek/search", count: 8, successRate: 0.95, p50: 1100, p95: 3100, avgSources: 6.2, summaryCoverage: 0.91, errorCount: 0 },
-			{ target: "zhipu/search", count: 4, successRate: 0.87, p50: 2400, p95: 4800, avgSources: 4.9, summaryCoverage: 0.64, errorCount: 1 },
-			{ target: "historical", count: 2, successRate: 1, p50: 500, p95: 900, avgSources: 3, summaryCoverage: 0, errorCount: 0 }
+			{ target: "deepseek/search", count: 8, successRate: 0.95, p50: 1100, p95: 3100, avgSources: 6.2, summaryCoverage: 0.91, errorCount: 0, emptySourceRate: 0, emptyAnswerRate: 0.12, truncatedRate: 0, timeoutCount: 0, timeoutRate: 0 },
+			{ target: "zhipu/search", count: 4, successRate: 0.87, p50: 2400, p95: 4800, avgSources: 4.9, summaryCoverage: 0.64, errorCount: 1, emptySourceRate: 0.25, emptyAnswerRate: 0.25, truncatedRate: 0.25, timeoutCount: 1, timeoutRate: 0.25 },
+			{ target: "historical", count: 2, successRate: 1, p50: 500, p95: 900, avgSources: 3, summaryCoverage: 0, errorCount: 0, emptySourceRate: 0, emptyAnswerRate: 0, truncatedRate: 0, timeoutCount: 0, timeoutRate: 0 }
 		],
 		byBucket: [
-			{ at: "2026-10-31T11:00:00.000Z", count: 0, successRate: null, p95: null },
-			{ at: "2026-10-31T12:00:00.000Z", count: 12, successRate: 0.92, p95: 4200 }
+			{ at: "2026-10-31T11:00:00.000Z", count: 0, successRate: null, p95: null, errorCount: 0 },
+			{ at: "2026-10-31T12:00:00.000Z", count: 12, successRate: 0.92, p95: 4200, errorCount: 1 }
 		],
 		topErrors: [{ code: "WEB_PROVIDER_RATE_LIMIT", count: 1, lastMessage: "HTTP 429" }],
+		topHosts: [{ host: "api-docs.deepseek.com", count: 2 }, { host: "example.com", count: 1 }],
 		targets: ["deepseek/search", "kimi/search", "zhipu/search"]
 	},
 	records: {
@@ -787,11 +791,12 @@ await tick();
 let obsTree = render(false);
 if (lastRecordsUrl !== null) throw new Error("the overview must not request records");
 const metricCards = nodesOfClass(obsTree, "dwsd-obs-card");
-expectEqual(metricCards.length, 5, "the overview renders five metric cards");
+expectEqual(metricCards.length, 9, "the overview renders nine metric cards, including the quality metrics");
 const metricValues = metricCards.map((node) => textOfNode(nodesOfClass(node, "dwsd-obs-cardValue")[0])).join(" ");
 if (!metricValues.includes("92%")) throw new Error(`the success rate must render as a percentage, got: ${metricValues}`);
 if (!metricValues.includes("4.2s")) throw new Error(`P95 must render in seconds, got: ${metricValues}`);
 if (!metricValues.includes("5.8")) throw new Error(`the average source count must render, got: ${metricValues}`);
+if (!metricValues.includes("17%")) throw new Error(`the empty-answer rate must render, got: ${metricValues}`);
 if (nodesOfClass(obsTree, "dwsd-obs-chart").length === 0) throw new Error("the overview should render the trend chart");
 const trend = nodesOfClass(obsTree, "dwsd-obs-chart")[0];
 const trendSvg = nodesOfClass(trend, "dwsd-obs-chartSuccess")[0];
