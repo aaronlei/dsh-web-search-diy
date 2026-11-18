@@ -9,7 +9,7 @@ import { randomUUID } from "node:crypto";
 import { hasField, splitList } from "../catalog.ts";
 import { normalizeZhipuSources, normalizeSourceUrl, type MutableSource } from "../mappers/sources.ts";
 import type { SearchOptions } from "../types.ts";
-import { isAbortError, postWithReasoningFallback, searchAborted } from "../transport.ts";
+import { mapFailure, postSearch } from "../transport.ts";
 import { asArray, asRecord, asString } from "../wire.ts";
 
 /** 四个变体。 */
@@ -61,6 +61,26 @@ function sourcesFromAnnotations(message: Record<string, unknown> | undefined): M
 }
 
 /**
+ * 读取 Chat 响应的 assistant 消息与文本。
+ *
+ * @param data - 解析后的响应体。
+ * @param capability - 失败消息里点名的能力。
+ * @returns 响应根、assistant 消息与文本。
+ * @throws {WebError} 响应中没有 assistant 文本时。
+ */
+function chatMessageOf(data: unknown, capability: string): {
+	root: Record<string, unknown> | undefined;
+	message: Record<string, unknown> | undefined;
+	content: string;
+} {
+	const root = asRecord(data);
+	const message = asRecord(asRecord(asArray(root?.choices)[0])?.message);
+	const content = messageContent(message);
+	if (content === void 0) throw new WebError(`the provider returned no assistant message; the endpoint may not implement ${capability}`, "WEB_PROVIDER_ERROR");
+	return { root, message, content };
+}
+
+/**
  * 归一化智谱 Chat Completions 响应：`content` 取 assistant 消息，来源取
  * `message.web_search` 或根上的 `web_search`。
  *
@@ -69,10 +89,7 @@ function sourcesFromAnnotations(message: Record<string, unknown> | undefined): M
  * @throws {WebError} 没有 assistant 消息时。
  */
 export function mapZhipuChatResponse(data: unknown): WebSearchResult {
-	const root = asRecord(data);
-	const message = asRecord(asRecord(asArray(root?.choices)[0])?.message);
-	const content = messageContent(message);
-	if (content === void 0) throw new WebError("the provider returned no assistant message; the endpoint may not implement the chat web_search tool", "WEB_PROVIDER_ERROR");
+	const { root, message, content } = chatMessageOf(data, "the chat web_search tool");
 	const messageSources = message?.web_search;
 	const entries = Array.isArray(messageSources) && messageSources.length > 0 ? messageSources : asArray(root?.web_search);
 	return {
@@ -91,10 +108,7 @@ export function mapZhipuChatResponse(data: unknown): WebSearchResult {
  * @throws {WebError} 没有 assistant 消息时。
  */
 export function mapChatAnnotationsResponse(data: unknown): WebSearchResult {
-	const root = asRecord(data);
-	const message = asRecord(asRecord(asArray(root?.choices)[0])?.message);
-	const content = messageContent(message);
-	if (content === void 0) throw new WebError("the provider returned no assistant message; the endpoint may not implement the chat web_search tool", "WEB_PROVIDER_ERROR");
+	const { message, content } = chatMessageOf(data, "the chat web_search tool");
 	return {
 		content,
 		sources: sourcesFromAnnotations(message),
@@ -110,11 +124,7 @@ export function mapChatAnnotationsResponse(data: unknown): WebSearchResult {
  * @throws {WebError} 没有 assistant 消息时。
  */
 export function mapQwenChatResponse(data: unknown): WebSearchResult {
-	const root = asRecord(data);
-	const message = asRecord(asRecord(asArray(root?.choices)[0])?.message);
-	const content = messageContent(message);
-	if (content === void 0) throw new WebError("the provider returned no assistant message; the endpoint may not implement qwen search", "WEB_PROVIDER_ERROR");
-	return { content, sources: [], truncated: false };
+	return { content: chatMessageOf(data, "qwen search").content, sources: [], truncated: false };
 }
 
 /** 智谱请求体。 */
@@ -223,16 +233,12 @@ export async function searchChatCompletions(options: SearchOptions, apiKey: stri
 		: variant === "qwen" ? qwenBody(options, request.query)
 		: variant === "openrouter" ? openrouterBody(options, request.query)
 		: openaiSearchModelBody(options, request.query);
-	const data = await postWithReasoningFallback(options.endpoint, apiKey, body, signal, void 0, (sent) => {
-		options.recordRequest?.({ endpoint: options.endpoint, target: options.target, body: sent });
-	});
+	const data = await postSearch(options, apiKey, body, signal);
 	try {
 		if (variant === "zhipu") return mapZhipuChatResponse(data);
 		if (variant === "qwen") return mapQwenChatResponse(data);
 		return mapChatAnnotationsResponse(data);
 	} catch (error) {
-		if (signal?.aborted === true || isAbortError(error)) throw searchAborted(signal, error);
-		if (error instanceof WebError) throw error;
-		throw new WebError(`web search returned an unprocessable response body: ${String(error)}`, "WEB_PROVIDER_ERROR", { cause: error });
+		mapFailure(error, signal);
 	}
 }

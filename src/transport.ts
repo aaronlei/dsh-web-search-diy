@@ -8,6 +8,7 @@
  */
 import { WebError } from "@deepseek-ai/dsh-web";
 import { gunzipSync, inflateSync } from "node:zlib";
+import type { SearchOptions } from "./types.ts";
 
 /** 每个请求都带上的归属头；`test/catalog.test.mjs` 断言它与 package.json 版本一致。 */
 export const USER_AGENT = "dsh-web-search-diy/2.1.1";
@@ -261,6 +262,32 @@ export async function postWithReasoningFallback(endpoint: string, apiKey: string
 }
 
 /**
+ * POST 一次搜索，在端点持续拒绝时逐个牺牲可选的 reasoning 参数，并记录每次实际
+ * 发送的请求体。
+ *
+ * 记录回调集中在这里，协议只负责请求体与响应映射；`apiVersion` 供 Anthropic
+ * 协议在审计记录里保留版本头。
+ *
+ * @param options - 本次搜索的选项快照。
+ * @param apiKey - 已解析 key。
+ * @param body - 首次发送的请求体。
+ * @param signal - 外层搜索的中断信号。
+ * @param extraHeaders - 协议专属头。
+ * @param apiVersion - 审计记录里的协议版本头。
+ * @returns 解析后的响应体。
+ */
+export function postSearch(options: SearchOptions, apiKey: string, body: Record<string, unknown>, signal?: AbortSignal, extraHeaders?: Record<string, string | undefined>, apiVersion?: string): Promise<unknown> {
+	return postWithReasoningFallback(options.endpoint, apiKey, body, signal, extraHeaders, (sent) => {
+		options.recordRequest?.({
+			endpoint: options.endpoint,
+			target: options.target,
+			...(apiVersion !== void 0 ? { apiVersion } : {}),
+			body: sent
+		});
+	});
+}
+
+/**
  * 让同进程的异步预检与调用方取消竞速。挂上的 settlement 处理器会在中断之后继续观察
  * 不配合的操作，避免之后的拒绝成为 unhandled。
  *
@@ -299,4 +326,17 @@ export function searchAborted(signal?: AbortSignal, fallback?: unknown): WebErro
 /** True for a fetch/`AbortSignal` abort, surfaced as `WEB_ABORTED`. */
 export function isAbortError(error: unknown): boolean {
 	return error instanceof DOMException && error.name === "AbortError";
+}
+
+/**
+ * 把协议映射失败统一归类：调用方取消、已有的 `WebError`，或不可解析的响应体。
+ *
+ * @param error - 映射抛出的错误。
+ * @param signal - 外层搜索的取消信号。
+ * @throws {WebError} 始终抛出。
+ */
+export function mapFailure(error: unknown, signal?: AbortSignal): never {
+	if (signal?.aborted === true || isAbortError(error)) throw searchAborted(signal, error);
+	if (error instanceof WebError) throw error;
+	throw new WebError(`web search returned an unprocessable response body: ${String(error)}`, "WEB_PROVIDER_ERROR", { cause: error });
 }

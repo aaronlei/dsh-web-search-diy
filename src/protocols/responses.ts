@@ -11,7 +11,7 @@ import type { WebSearchRequest, WebSearchResult } from "@deepseek-ai/dsh-web";
 import { hasField, splitList } from "../catalog.ts";
 import { normalizeSourceUrl, type MutableSource } from "../mappers/sources.ts";
 import type { SearchOptions } from "../types.ts";
-import { isAbortError, postWithReasoningFallback, searchAborted } from "../transport.ts";
+import { mapFailure, postSearch } from "../transport.ts";
 import { asArray, asRecord, asString } from "../wire.ts";
 
 /** True for the official block type or a namespaced server tool (`openrouter:web_search`). */
@@ -192,7 +192,6 @@ function toolDeclaration(options: SearchOptions): Record<string, unknown> {
  */
 export async function searchResponses(options: SearchOptions, apiKey: string, request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult> {
 	const { settings, capability } = options;
-	const endpoint = options.endpoint;
 	const body: Record<string, unknown> = {
 		model: settings.model,
 		input: [{
@@ -213,9 +212,7 @@ export async function searchResponses(options: SearchOptions, apiKey: string, re
 		/** 只在显式设置时发送；未实现该参数的网关可能直接拒绝未知字段。 */
 		...(settings.reasoningEffort.length > 0 ? { reasoning: { effort: settings.reasoningEffort } } : {})
 	};
-	const data = await postWithReasoningFallback(endpoint, apiKey, body, signal, void 0, (sent) => {
-		options.recordRequest?.({ endpoint, target: options.target, body: sent });
-	}).catch((error: unknown) => {
+	const data = await postSearch(options, apiKey, body, signal).catch((error: unknown) => {
 		if (error instanceof WebError && /\b404\b/u.test(error.message)) {
 			throw new WebError(`${error.message} — this endpoint exposes no Responses path; point ${capability.id} at a gateway that really implements the Responses API${capability.docs !== void 0 ? ` (docs: ${capability.docs})` : ""}, or switch to another target`, "WEB_PROVIDER_ERROR", { cause: error });
 		}
@@ -224,8 +221,6 @@ export async function searchResponses(options: SearchOptions, apiKey: string, re
 	try {
 		return mapResponsesResponse(data);
 	} catch (error) {
-		if (signal?.aborted === true || isAbortError(error)) throw searchAborted(signal, error);
-		if (error instanceof WebError) throw error;
-		throw new WebError(`web search returned an unprocessable response body: ${String(error)}`, "WEB_PROVIDER_ERROR", { cause: error });
+		mapFailure(error, signal);
 	}
 }

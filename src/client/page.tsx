@@ -19,6 +19,7 @@ import {
 import { defaultText, fillFromTemplate, seedFromTemplate, stagedValue, toDraft, wireValue } from "./draft.ts";
 import { PROTOCOLS, protocolLabel, supportLabel, vendorLabel } from "./labels.ts";
 import { ChoiceField, ComboField, SecretField, SelectField, SwitchField, ValueField } from "./fields.tsx";
+import { getJson, postJson } from "./http.ts";
 import { ObsPage } from "./obs/page.tsx";
 
 /** DOM id prefix for every control the card renders. */
@@ -91,9 +92,7 @@ export function ConfigPage({ t }: { t: (key: string) => string }) {
 		const controller = new AbortController();
 		loadAbort.current = controller;
 		try {
-			const response = await fetch(CONFIG_URL, { headers: { accept: "application/json" }, signal: controller.signal });
-			if (!response.ok) throw new Error(`HTTP ${response.status}`);
-			const data = await response.json() as Snapshot;
+			const data = await getJson<Snapshot>(CONFIG_URL, controller.signal);
 			const staged: Record<string, TargetDraft> = {};
 			for (const [id, bucket] of Object.entries(data.targets ?? {})) staged[id] = toDraft(bucket);
 			const selection = data.selection ?? { vendor: "deepseek", protocol: "search" as Protocol };
@@ -234,12 +233,7 @@ export function ConfigPage({ t }: { t: (key: string) => string }) {
 		setTestResult(null);
 		const payload = stagedPayload();
 		try {
-			const response = await fetch(TEST_URL, {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify(payload)
-			});
-			const data = await response.json() as { ok?: boolean; sourceCount?: number; sourceQuality?: string; degraded?: boolean; latencyMs?: number; error?: string };
+			const data = await postJson<{ ok?: boolean; sourceCount?: number; sourceQuality?: string; degraded?: boolean; latencyMs?: number; error?: string }>(TEST_URL, payload);
 			if (data.ok === true) {
 				const count = data.sourceCount ?? 0;
 				const ms = data.latencyMs ?? 0;
@@ -253,7 +247,7 @@ export function ConfigPage({ t }: { t: (key: string) => string }) {
 							: `${t("testOk")} · ${t("testNoSourcesFull")} · ${ms}ms`;
 				setTestResult({ text: `${summary}${data.degraded === true ? ` · ${t("testDegraded")}` : ""}`, warn: count === 0 && data.sourceQuality !== "none" });
 			} else {
-				setTestResult({ text: `${t("testFailed")}: ${data.error ?? `HTTP ${response.status}`}`, warn: true });
+				setTestResult({ text: `${t("testFailed")}${data.error !== void 0 ? `: ${data.error}` : ""}`, warn: true });
 			}
 		} catch (cause) {
 			setTestResult({ text: `${t("testFailed")}: ${cause instanceof Error ? cause.message : String(cause)}`, warn: true });
@@ -269,13 +263,8 @@ export function ConfigPage({ t }: { t: (key: string) => string }) {
 		const payload = stagedPayload();
 		if (apiKey.length > 0) payload.apiKey = apiKey;
 		try {
-			const response = await fetch(CONFIG_URL, {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify(payload)
-			});
-			const data = await response.json() as { ok?: boolean; error?: string };
-			if (!response.ok || data.ok !== true) throw new Error(data.error ?? `HTTP ${response.status}`);
+			/** 非 2xx 由 postJson 抛服务端错误；2xx 即已保存。 */
+			await postJson(CONFIG_URL, payload);
 			setApiKey("");
 			await load();
 		} catch (error) {

@@ -339,10 +339,7 @@ export class ObservationStore {
 		const lastPage = Math.max(1, Math.ceil(total / pageSize));
 		const requested = typeof query.page === "number" && Number.isSafeInteger(query.page) ? query.page : 1;
 		const page = Math.min(Math.max(requested, 1), lastPage);
-		const rows = this.rowsWhere(clauses, params, "DESC", pageSize, (page - 1) * pageSize);
-		const sources = this.sourcesOfIds(rows.map((row) => row.id));
-		const records: ObservationRecordView[] = rows.map((row) => ({ ...recordFromRow(row), sources: sources.get(row.id) ?? [] }));
-		return { records, total, page, pageSize };
+		return { records: this.viewsWhere(clauses, params, "DESC", pageSize, (page - 1) * pageSize), total, page, pageSize };
 	}
 
 	/**
@@ -353,9 +350,7 @@ export class ObservationStore {
 	 */
 	export(query: ExportQuery): { filename: string; contentType: string; body: string } {
 		const filter = rangeFilter(query, this.now());
-		const rows = this.rowsWhere([filter.sql], [...filter.params], "ASC", MAX_EXPORT_ROWS);
-		const sources = this.sourcesOfIds(rows.map((row) => row.id));
-		const views: ObservationRecordView[] = rows.map((row) => ({ ...recordFromRow(row), sources: sources.get(row.id) ?? [] }));
+		const views = this.viewsWhere([filter.sql], [...filter.params], "ASC", MAX_EXPORT_ROWS);
 		return {
 			filename: exportFileName(query.format, this.now()),
 			contentType: contentTypeOf(query.format),
@@ -421,6 +416,13 @@ export class ObservationStore {
 		const sql = `SELECT ${columns} FROM observations ${where} ORDER BY at ${order}, id ${order}${tail}`;
 		const args = limit > 0 ? [...params, limit, offset] : [...params];
 		return this.db.prepare(sql).all(...args) as ObservationRow[];
+	}
+
+	/** 读取一页记录并附带来源明细；分页与导出共用同一投影。 */
+	private viewsWhere(clauses: readonly string[], params: readonly unknown[], order: "ASC" | "DESC", limit: number, offset = 0): ObservationRecordView[] {
+		const rows = this.rowsWhere(clauses, params, order, limit, offset);
+		const sources = this.sourcesOfIds(rows.map((row) => row.id));
+		return rows.map((row) => ({ ...recordFromRow(row), sources: sources.get(row.id) ?? [] }));
 	}
 
 	/** 与 {@link rowsWhere} 相同的筛选条件，返回记录总数。 */

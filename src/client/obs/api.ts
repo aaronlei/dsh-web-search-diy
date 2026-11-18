@@ -6,6 +6,7 @@
  * @module dsh-web-search-diy/client/obs/api
  */
 import type { Filters, RecordsResponse, StatusKey, StorageStats, SummaryResponse, TimeRange } from "./types.ts";
+import { getJson, postJson, readJsonResponse } from "../http.ts";
 import { sinceOf, untilOf } from "./range.ts";
 
 /** Host 观测端点前缀。 */
@@ -26,31 +27,14 @@ function queryOf(filters: Filters, extra: Record<string, string | undefined> = {
 	return params.toString();
 }
 
-/** 解析 JSON 响应；非 2xx 抛出带状态码的错误。 */
-async function readJson<T>(response: Response): Promise<T> {
-	if (!response.ok) {
-		let detail = `HTTP ${response.status}`;
-		try {
-			const body = await response.json() as { error?: string };
-			if (typeof body.error === "string" && body.error.length > 0) detail = body.error;
-		} catch {
-			// 非 JSON 错误体不覆盖状态码。
-		}
-		throw new Error(detail);
-	}
-	return await response.json() as T;
-}
-
 /** 拉取汇总。 */
 export async function fetchSummary(filters: Filters, signal?: AbortSignal): Promise<SummaryResponse> {
-	const response = await fetch(`${OBS_BASE}/summary?${queryOf(filters)}`, { headers: { accept: "application/json" }, ...(signal !== void 0 ? { signal } : {}) });
-	return await readJson<SummaryResponse>(response);
+	return getJson<SummaryResponse>(`${OBS_BASE}/summary?${queryOf(filters)}`, signal);
 }
 
 /** 拉取观测库的存储状态。 */
 export async function fetchStorage(signal?: AbortSignal): Promise<StorageStats> {
-	const response = await fetch(`${OBS_BASE}/storage`, { headers: { accept: "application/json" }, ...(signal !== void 0 ? { signal } : {}) });
-	return await readJson<StorageStats>(response);
+	return getJson<StorageStats>(`${OBS_BASE}/storage`, signal);
 }
 
 /** 拉取一页记录；页码从 1 开始。 */
@@ -65,8 +49,7 @@ export async function fetchRecords(
 		status: options.status === void 0 || options.status === "all" ? void 0 : options.status,
 		query: options.query
 	};
-	const response = await fetch(`${OBS_BASE}/records?${queryOf(filters, extra)}`, { headers: { accept: "application/json" }, ...(signal !== void 0 ? { signal } : {}) });
-	return await readJson<RecordsResponse>(response);
+	return getJson<RecordsResponse>(`${OBS_BASE}/records?${queryOf(filters, extra)}`, signal);
 }
 
 /** 导出链接：直接交给浏览器下载当前筛选范围。 */
@@ -98,18 +81,12 @@ export interface ImportStatus {
 /** 启动一次后台导入；用 {@link fetchImportStatus} 轮询进度。 */
 export async function startImport(range: TimeRange): Promise<void> {
 	const until = untilOf(range);
-	const response = await fetch(`${OBS_BASE}/import`, {
-		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ since: sinceOf(range), ...(until !== void 0 ? { until } : {}), async: true })
-	});
-	await readJson<{ accepted?: boolean }>(response);
+	await postJson<{ accepted?: boolean }>(`${OBS_BASE}/import`, { since: sinceOf(range), ...(until !== void 0 ? { until } : {}), async: true });
 }
 
 /** 读取后台导入的进度与结果。 */
 export async function fetchImportStatus(): Promise<ImportStatus> {
-	const response = await fetch(`${OBS_BASE}/import/status`, { headers: { accept: "application/json" } });
-	return await readJson<ImportStatus>(response);
+	return getJson<ImportStatus>(`${OBS_BASE}/import/status`);
 }
 
 /** 清空全部观测记录；返回删除条数。 */
@@ -119,6 +96,6 @@ export async function clearObservations(): Promise<number> {
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ confirm: "DELETE" })
 	});
-	const body = await readJson<{ deleted?: number }>(response);
+	const body = await readJsonResponse<{ deleted?: number }>(response);
 	return body.deleted ?? 0;
 }

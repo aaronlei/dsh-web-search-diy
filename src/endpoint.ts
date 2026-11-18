@@ -8,7 +8,7 @@
  */
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import type { Context } from "@deepseek-ai/cordis";
-import { ALL_TARGETS, capabilityOf, DEFAULT_TARGET, isSelectable, SHAPE_DEFAULT_TARGETS, VENDORS, type Capability, type TargetId } from "./catalog.ts";
+import { ALL_TARGETS, capabilityOf, DEFAULT_TARGET, SHAPE_DEFAULT_TARGETS, VENDORS, type Capability, type TargetId } from "./catalog.ts";
 import type { CatalogSnapshotEntry, ConfigSnapshot } from "./contract.ts";
 import {
 	buildConfigPatch,
@@ -102,6 +102,34 @@ export function sendJson(res: HttpResponseLike, status: number, body: unknown): 
 		"Cache-Control": "no-store"
 	});
 	res.end(payload);
+}
+
+/**
+ * 读取 JSON 对象请求体。
+ *
+ * 失败时已经发送 413/400 响应并返回 undefined，调用方直接返回即可。
+ *
+ * @param req - HTTP 请求。
+ * @param res - HTTP 响应。
+ * @returns 请求体对象，或 undefined（响应已发送）。
+ */
+export async function readJsonObjectBody(req: HttpRequestLike, res: HttpResponseLike): Promise<Record<string, unknown> | undefined> {
+	let body: unknown;
+	try {
+		body = await readJsonBody(req);
+	} catch (error) {
+		if (error instanceof BodyTooLargeError) {
+			sendJson(res, 413, { error: "请求体过大" });
+			return void 0;
+		}
+		sendJson(res, 400, { error: "请求体不是合法 JSON" });
+		return void 0;
+	}
+	if (body === null || typeof body !== "object") {
+		sendJson(res, 400, { error: "请求体必须是 JSON 对象" });
+		return void 0;
+	}
+	return body as Record<string, unknown>;
 }
 
 /** 配置端点用到的凭据面（`set` 只写不读）。 */
@@ -199,6 +227,41 @@ function validateTargetValues(capability: Capability, merged: Record<string, unk
 	return allowed.includes(count) ? void 0 : "search_pro_sogou 的 count 只支持 10/20/30/40/50";
 }
 
+/** 一次已校验的配置草稿：目标、待保存补丁与合并进已保存桶的结果。 */
+interface ConfigDraft {
+	readonly capability: Capability;
+	readonly patch: Record<string, unknown>;
+	readonly cleared: readonly string[];
+	readonly merged: Record<string, unknown>;
+}
+
+/**
+ * 校验一次配置提交并合并到已保存的桶。
+ *
+ * 保存与测试连接共用这条路径，两处校验不会漂移。`support` 是唯一的目标门槛：
+ * `isSelectable` 的判定与它等价（`capabilityOf` 已保证 target 存在）。
+ *
+ * @param record - 已解析的请求体。
+ * @returns 草稿；校验失败时返回错误文案。
+ */
+function configDraftOf(record: Record<string, unknown>): ConfigDraft | { readonly error: string } {
+	const { vendor, protocol } = record;
+	if (typeof vendor !== "string" || typeof protocol !== "string") return { error: "请求体必须包含 vendor 与 protocol" };
+	const id = `${vendor}/${protocol}`;
+	const capability = capabilityOf(id);
+	if (capability === void 0) return { error: `未知的 target: ${id}` };
+	if (capability.support === "unsupported") return { error: `${id} 不可用：${capability.reason ?? "不支持"}` };
+	const { patch, cleared, error } = buildConfigPatch(capability, record);
+	if (error !== void 0) return { error };
+	const merged: Record<string, unknown> = { ...(readConfigDocument().targets[id] ?? {}), ...patch };
+	for (const key of cleared) delete merged[key];
+	const customError = validateCustom(capability, merged);
+	if (customError !== void 0) return { error: customError };
+	const valueError = validateTargetValues(capability, merged);
+	if (valueError !== void 0) return { error: valueError };
+	return { capability, patch, cleared, merged };
+}
+
 /**
  * 在 webServer 服务上注册配置 HTTP 端点（仅 web profile）。
  *
@@ -243,33 +306,11 @@ export function registerConfigEndpoint(ctx: Context, webServer: WebServerLike, o
 				return sendJson(res, 200, snapshot);
 			}
 			if (req.method === "POST") {
-				let body: unknown;
-				try {
-					body = await readJsonBody(req);
-				} catch (error) {
-					if (error instanceof BodyTooLargeError) return sendJson(res, 413, { error: "请求体过大" });
-					return sendJson(res, 400, { error: "请求体不是合法 JSON" });
-				}
-				if (body === null || typeof body !== "object") return sendJson(res, 400, { error: "请求体必须是 JSON 对象" });
-				const record = body as Record<string, unknown>;
-				const vendor = record.vendor;
-				const protocol = record.protocol;
-				if (typeof vendor !== "string" || typeof protocol !== "string") return sendJson(res, 400, { error: "请求体必须包含 vendor 与 protocol" });
-				const id = `${vendor}/${protocol}`;
-				const capability = capabilityOf(id);
-				if (capability === void 0) return sendJson(res, 400, { error: `未知的 target: ${id}` });
-				if (capability.support === "unsupported") return sendJson(res, 400, { error: `${id} 不可用：${capability.reason ?? "不支持"}` });
-				if (!isSelectable(id)) return sendJson(res, 400, { error: `${id} 不可选择` });
-				const { patch, cleared, error } = buildConfigPatch(capability, record);
-				if (error !== void 0) return sendJson(res, 400, { error });
-				const document = readConfigDocument();
-				const existing = document.targets[id] ?? {};
-				const merged: Record<string, unknown> = { ...existing, ...patch };
-				for (const key of cleared) delete merged[key];
-				const customError = validateCustom(capability, merged);
-				if (customError !== void 0) return sendJson(res, 400, { error: customError });
-				const valueError = validateTargetValues(capability, merged);
-				if (valueError !== void 0) return sendJson(res, 400, { error: valueError });
+				const record = await readJsonObjectBody(req, res);
+				if (record === void 0) return;
+				const draft = configDraftOf(record);
+				if ("error" in draft) return sendJson(res, 400, { error: draft.error });
+				const { capability, patch, cleared, merged } = draft;
 				if (typeof record.apiKey === "string" && record.apiKey.length > 0) {
 					const credentials = ctx.get("credentials") as CredentialsLike | undefined;
 					if (credentials === void 0) return sendJson(res, 400, { error: "credentials 服务不可用，无法保存 API key" });
@@ -299,33 +340,14 @@ export function registerConfigEndpoint(ctx: Context, webServer: WebServerLike, o
 		path: "/api/web-search-diy/test",
 		handler: async (req, res) => {
 			if (req.method !== "POST") return sendJson(res, 405, { error: "仅支持 POST" });
-			let body: unknown;
-			try {
-				body = await readJsonBody(req);
-			} catch (error) {
-				if (error instanceof BodyTooLargeError) return sendJson(res, 413, { error: "请求体过大" });
-				return sendJson(res, 400, { error: "请求体不是合法 JSON" });
-			}
-			if (body === null || typeof body !== "object") return sendJson(res, 400, { error: "请求体必须是 JSON 对象" });
-			const record = body as Record<string, unknown>;
-			if (typeof record.vendor !== "string" || typeof record.protocol !== "string") return sendJson(res, 400, { error: "请求体必须包含 vendor 与 protocol" });
-			const id = `${record.vendor}/${record.protocol}`;
-			const capability = capabilityOf(id);
-			if (capability === void 0) return sendJson(res, 400, { error: `未知的 target: ${id}` });
-			if (capability.support === "unsupported") return sendJson(res, 400, { error: `${id} 不可用：${capability.reason ?? "不支持"}` });
-			const { patch, cleared, error } = buildConfigPatch(capability, record);
-			if (error !== void 0) return sendJson(res, 400, { error });
-			const saved = readConfigDocument().targets[id] ?? {};
-			const merged: Record<string, unknown> = { ...saved, ...patch };
-			for (const key of cleared) delete merged[key];
+			const record = await readJsonObjectBody(req, res);
+			if (record === void 0) return;
+			const draft = configDraftOf(record);
+			if ("error" in draft) return sendJson(res, 400, { error: draft.error });
+			const { capability, merged } = draft;
 			/** 草稿未显式设置时给 60 秒：测试连接的预算不应被 25 秒的搜索超时打断。 */
 			if (merged.requestTimeoutMs === void 0) merged.requestTimeoutMs = 60_000;
-			/** 测试连接走与保存完全相同的校验，避免“保存被拒、测试却发出请求”的错位。 */
-			const customError = validateCustom(capability, merged);
-			if (customError !== void 0) return sendJson(res, 400, { error: customError });
-			const valueError = validateTargetValues(capability, merged);
-			if (valueError !== void 0) return sendJson(res, 400, { error: valueError });
-			const options = resolveOptions(ctx, { version: CONFIG_VERSION, targets: { [id]: merged } }, id as TargetId);
+			const options = resolveOptions(ctx, { version: CONFIG_VERSION, targets: { [capability.id]: merged } }, capability.id as TargetId);
 			const started = Date.now();
 			try {
 				const result = await new DiySearchProvider(() => options, {

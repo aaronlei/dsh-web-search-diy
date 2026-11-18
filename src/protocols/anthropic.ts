@@ -9,7 +9,7 @@ import { hasField, splitList } from "../catalog.ts";
 import { isoPublishedAt, normalizeSourceUrl, type MutableSource } from "../mappers/sources.ts";
 import { DEFAULT_API_VERSION } from "../options.ts";
 import type { SearchOptions } from "../types.ts";
-import { isAbortError, postWithReasoningFallback, searchAborted } from "../transport.ts";
+import { mapFailure, postSearch } from "../transport.ts";
 import { asArray, asRecord, asString } from "../wire.ts";
 
 /**
@@ -114,7 +114,6 @@ function toolDeclaration(options: SearchOptions): Record<string, unknown> {
  */
 export async function searchAnthropicMessages(options: SearchOptions, apiKey: string, request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult> {
 	const { settings, capability } = options;
-	const endpoint = options.endpoint;
 	const extraSystem = capability.search.extraSystem;
 	const body: Record<string, unknown> = {
 		model: settings.model,
@@ -131,17 +130,13 @@ export async function searchAnthropicMessages(options: SearchOptions, apiKey: st
 		...(settings.effort.length > 0 ? { output_config: { effort: settings.effort } } : {}),
 		...(settings.thinking === "disabled" ? { thinking: { type: "disabled" } } : {})
 	};
-	const data = await postWithReasoningFallback(endpoint, apiKey, body, signal, {
+	const data = await postSearch(options, apiKey, body, signal, {
 		"x-api-key": apiKey,
 		"anthropic-version": DEFAULT_API_VERSION
-	}, (sent) => {
-		options.recordRequest?.({ endpoint, target: options.target, apiVersion: DEFAULT_API_VERSION, body: sent });
-	});
+	}, DEFAULT_API_VERSION);
 	try {
 		return mapAnthropicResponse(data);
 	} catch (error) {
-		if (signal?.aborted === true || isAbortError(error)) throw searchAborted(signal, error);
-		if (error instanceof WebError) throw error;
-		throw new WebError(`web search returned an unprocessable response body: ${String(error)}`, "WEB_PROVIDER_ERROR", { cause: error });
+		mapFailure(error, signal);
 	}
 }

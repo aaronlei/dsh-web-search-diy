@@ -12,7 +12,7 @@ import { isIP } from "node:net";
 import { splitList } from "../catalog.ts";
 import { isoPublishedAt, normalizeSourceUrl, type MutableSource } from "../mappers/sources.ts";
 import type { SearchOptions } from "../types.ts";
-import { isAbortError, postJson, searchAborted } from "../transport.ts";
+import { mapFailure, postJson } from "../transport.ts";
 import { asArray, asRecord, asString } from "../wire.ts";
 
 /** 一个兼容模板的请求字段名与响应结构。 */
@@ -331,9 +331,7 @@ export async function searchStandalone(options: SearchOptions, apiKey: string, r
 	try {
 		return mapStandaloneResponse(data, template, { maxEntries: options.settings.digestEntries, maxSnippetChars: options.settings.digestSnippetChars });
 	} catch (error) {
-		if (signal?.aborted === true || isAbortError(error)) throw searchAborted(signal, error);
-		if (error instanceof WebError) throw error;
-		throw new WebError(`web search returned an unprocessable response body: ${String(error)}`, "WEB_PROVIDER_ERROR", { cause: error });
+		mapFailure(error, signal);
 	}
 }
 

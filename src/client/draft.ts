@@ -22,11 +22,6 @@ export function toDraft(bucket: unknown): TargetDraft {
 	return draft;
 }
 
-/**
- * Seed a custom target from its first template. Used both when the user switches to a
- * custom target and when a saved selection already points at one without a bucket.
- * `template` itself is never staged: it is a fill action, not part of the configuration.
- */
 /** One template row as served by GET /config. */
 export type TemplateEntry = NonNullable<CatalogEntry["templates"]>[number];
 
@@ -50,6 +45,11 @@ export function fillFromTemplate(template: TemplateEntry, fields: readonly strin
 	return filled;
 }
 
+/**
+ * Seed a custom target from its first template. Used both when the user switches to a
+ * custom target and when a saved selection already points at one without a bucket.
+ * `template` itself is never staged: it is a fill action, not part of the configuration.
+ */
 export function seedFromTemplate(next: CatalogEntry | undefined): TargetDraft {
 	const template = next?.templates?.[0];
 	if (next === void 0 || template === void 0) return {};

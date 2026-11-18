@@ -28,6 +28,7 @@ import {
 	type Vendor
 } from "./catalog.ts";
 import type { FieldSpecWire } from "./contract.ts";
+import { asRecord } from "./wire.ts";
 
 /** On-disk configuration version: 3 targets keyed by `<vendor>/<protocol>`. */
 export const CONFIG_VERSION = 3;
@@ -124,11 +125,6 @@ export function configFilePath(): string {
 /** 旧格式文件的一次性备份路径。 */
 function backupPath(): string {
 	return `${configFilePath()}.v2.bak`;
-}
-
-/** 宽松读取对象。 */
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-	return typeof value === "object" && value !== null ? value as Record<string, unknown> : void 0;
 }
 
 /** 按规格校验一个字段值；返回规范化后的值或 undefined。 */

@@ -5,7 +5,7 @@
  *
  * @module dsh-web-search-diy/observability/endpoint
  */
-import { BodyTooLargeError, readJsonBody, sendJson, type HttpRequestLike, type HttpResponseLike, type WebServerLike } from "../endpoint.ts";
+import { readJsonObjectBody, sendJson, type HttpRequestLike, type HttpResponseLike, type WebServerLike } from "../endpoint.ts";
 import { resolveRange } from "./aggregate.ts";
 import type { ImportResult } from "./import.ts";
 import type { ObservationStore } from "./store.ts";
@@ -22,6 +22,13 @@ function queryOf(req: HttpRequestLike): URLSearchParams {
 	const raw = req.url ?? "";
 	const index = raw.indexOf("?");
 	return new URLSearchParams(index >= 0 ? raw.slice(index + 1) : "");
+}
+
+/** 只接受 GET；其他方法已发送 405 时返回 false。 */
+function requireGet(req: HttpRequestLike, res: HttpResponseLike): boolean {
+	if (req.method === "GET") return true;
+	sendJson(res, 405, { error: "仅支持 GET" });
+	return false;
 }
 
 /** 解析范围参数；`since` / `until` 的合法性由 store 的 `resolveRange` 再校验一次。 */
@@ -103,7 +110,7 @@ export function registerObservabilityEndpoints(store: ObservationStore, webServe
 			kind: "exact",
 			path: `${BASE}/summary`,
 			handler: (req, res) => {
-				if (req.method !== "GET") return sendJson(res, 405, { error: "仅支持 GET" });
+				if (!requireGet(req, res)) return;
 				try {
 					return sendJson(res, 200, store.summary(rangeOf(queryOf(req))));
 				} catch (error) {
@@ -115,7 +122,7 @@ export function registerObservabilityEndpoints(store: ObservationStore, webServe
 			kind: "exact",
 			path: `${BASE}/storage`,
 			handler: (req, res) => {
-				if (req.method !== "GET") return sendJson(res, 405, { error: "仅支持 GET" });
+				if (!requireGet(req, res)) return;
 				try {
 					return sendJson(res, 200, store.storage());
 				} catch (error) {
@@ -127,7 +134,7 @@ export function registerObservabilityEndpoints(store: ObservationStore, webServe
 			kind: "exact",
 			path: `${BASE}/export`,
 			handler: (req, res) => {
-				if (req.method !== "GET") return sendJson(res, 405, { error: "仅支持 GET" });
+				if (!requireGet(req, res)) return;
 				try {
 					const params = queryOf(req);
 					const exported = store.export({ ...rangeOf(params), format: formatOf(params) });
@@ -150,14 +157,8 @@ export function registerObservabilityEndpoints(store: ObservationStore, webServe
 				path: `${BASE}/import`,
 				handler: async (req, res) => {
 					if (req.method !== "POST") return sendJson(res, 405, { error: "仅支持 POST" });
-					let body: unknown = {};
-					try {
-						body = await readJsonBody(req);
-					} catch (error) {
-						if (error instanceof BodyTooLargeError) return sendJson(res, 413, { error: "请求体过大" });
-						return sendJson(res, 400, { error: "请求体不是合法 JSON" });
-					}
-					const record = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
+					const record = await readJsonObjectBody(req, res);
+					if (record === void 0) return;
 					let sinceMs: number | undefined;
 					let untilMs: number | undefined;
 					try {
@@ -197,7 +198,7 @@ export function registerObservabilityEndpoints(store: ObservationStore, webServe
 				kind: "exact",
 				path: `${BASE}/import/status`,
 				handler: (req, res) => {
-					if (req.method !== "GET") return sendJson(res, 405, { error: "仅支持 GET" });
+					if (!requireGet(req, res)) return;
 					return sendJson(res, 200, importStatus);
 				}
 			})
@@ -214,14 +215,8 @@ export function registerObservabilityEndpoints(store: ObservationStore, webServe
 					}
 				}
 				if (req.method !== "DELETE") return sendJson(res, 405, { error: "仅支持 GET / DELETE" });
-				let body: unknown;
-				try {
-					body = await readJsonBody(req);
-				} catch (error) {
-					if (error instanceof BodyTooLargeError) return sendJson(res, 413, { error: "请求体过大" });
-					return sendJson(res, 400, { error: "请求体不是合法 JSON" });
-				}
-				const record = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
+				const record = await readJsonObjectBody(req, res);
+				if (record === void 0) return;
 				if (record.confirm !== "DELETE") return sendJson(res, 400, { error: '清空观测数据需要 confirm: "DELETE"' });
 				try {
 					return sendJson(res, 200, { ok: true, deleted: store.clear() });
