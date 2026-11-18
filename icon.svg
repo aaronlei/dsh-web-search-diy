@@ -1,11 +1,23 @@
 <!--
-  Web search artwork: the globe dsh itself renders for its `web_search`
-  activity (IconGlobeOutlineRegular in @deepseek-ai/dsh-client-ui-primitives,
-  MIT License, Copyright (c) 2026 DeepSeek), recolored for this plugin's card.
+  Web search artwork: a globe seen through a magnifier, drawn for this
+  plugin's card. Flat two-tone blue; no tile or background is drawn because
+  Plugin Manager supplies the surrounding tile.
 -->
-<svg width="36" height="36" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" stroke-width="1">
-  <path d="M7.99986 14.0887C11.3626 14.0887 14.0886 11.3627 14.0886 7.99998C14.0886 4.63727 11.3626 1.91125 7.99986 1.91125C4.63715 1.91125 1.91113 4.63727 1.91113 7.99998C1.91113 11.3627 4.63715 14.0887 7.99986 14.0887Z" stroke="#658EFF"/>
-  <path d="M2.34619 8H13.6538" stroke="#658EFF" stroke-linecap="square"/>
-  <path d="M7.99976 14.0889C9.23509 14.0889 10.1743 11.3629 10.1743 8.00006C10.1743 4.63739 9.23509 1.91138 7.99976 1.91138" stroke="#658EFF"/>
-  <path d="M7.99973 14.0889C6.76445 14.0889 5.8252 11.3629 5.8252 8.00006C5.8252 4.63739 6.76445 1.91138 7.99973 1.91138" stroke="#658EFF"/>
+<svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <defs>
+    <linearGradient id="wsd-globe" x1="15.4" y1="6.4" x2="15.4" y2="24" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7AA0FF"/>
+      <stop offset="1" stop-color="#5279F4"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(18 18) scale(1.1) translate(-18.75 -18.65)">
+    <g stroke="url(#wsd-globe)" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="15.4" cy="15.2" r="8.8" stroke-width="2"/>
+      <ellipse cx="15.4" cy="15.2" rx="3.9" ry="8.8" stroke-width="1.6"/>
+      <path d="M6.6 15.2H24.2" stroke-width="1.6"/>
+      <path d="M7.7 11.1Q15.4 10.45 23.1 11.1" stroke-width="1.6"/>
+      <path d="M7.7 19.3Q15.4 19.95 23.1 19.3" stroke-width="1.6"/>
+    </g>
+    <path d="M23.1 22.9 29.2 29" stroke="#5279F4" stroke-width="3.4" stroke-linecap="round"/>
+  </g>
 </svg>
